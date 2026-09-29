@@ -557,6 +557,7 @@ Measured on Premiere 26.5.1 / macOS / arm64 unless stated.
 ## Repo layout
 
 ```
+scripts/package-ccx.sh build the installable .ccx into dist/ (bash 3.2)
 CLAUDE.md              this file
 docs/shade-endpoints.txt   every documented endpoint, extracted from Shade's docs
 tools/harness.js       runs the plugin's sync under Node against REAL Shade,
@@ -583,6 +584,24 @@ plugin/                the UXP plugin. Manifest v5, flat, no build step.
   log.js               queued log file (from premiere-events)
   test/                node --test
 ```
+
+## Packaging
+
+`scripts/package-ccx.sh` builds `dist/<id>_premierepro.ccx`: a plain zip of
+`manifest.json`, `index.html` and the plugin's root `*.js`, nothing else
+(no tests, no package.json). That is exactly the shape of a UDT-packaged
+`.ccx` (checked against premiere-events' spike `.ccx`: files at the root, no
+signature, no META-INF). Before zipping it checks what only the installed
+path enforces, and has been shown to fail on both:
+- `host` must be an object (the array form loads in UDT and is silently
+  rejected when installed)
+- every `require("./x.js")` and the page's `<script src>` must be shipped
+
+Not yet verified by installing: whether `localFileSystem: "fullAccess"`
+makes Creative Cloud ask for consent at install, and whether the API key
+saved by a dev copy carries over (secure storage may be per install; expect
+to re-enter it). The installed copy's data folder is under
+`PluginsStorage/PPRO/26/External/...`, not `Developer/`.
 
 ## Working conventions
 

@@ -11,10 +11,23 @@ project has imported and used, directly into Shade's metadata:
 No local service: the plugin talks to `api.shade.inc` with your own API key.
 Only media on a mounted Shade drive (`/Volumes/<drive name>/...`) is tracked.
 
+## Install
+
+Build the installer, then double-click it (Creative Cloud installs it for
+Premiere; restart Premiere afterwards):
+```
+./scripts/package-ccx.sh      # -> dist/com.grammymoney.shadetracker_premierepro.ccx
+```
+The `.ccx` is what you hand to an editor. It is not signed or listed on
+Adobe Exchange, so Creative Cloud may warn that it is from an unknown
+developer.
+
+For development, load `plugin/manifest.json` in the UXP Developer Tool
+instead. Don't have both at once: they share a plugin id.
+
 ## Setup
 
-1. In the UXP Developer Tool: **Add Plugin** → `plugin/manifest.json` →
-   **Load**.
+1. Install the panel (above).
 2. In Premiere: **Window → UXP Plugins → Shade Tracker**, paste your API key
    (Shade → Settings → My account → API keys), **save**.
 3. Edit as usual. The first time you work with clips from a drive that
