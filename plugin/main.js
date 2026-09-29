@@ -161,6 +161,11 @@ async function boot() {
 let wired = false;
 let renderTimer = null;
 let shownWhy = null;         // the not-tracking reason currently in the note
+// The key field is open because the user asked to change the key. render()
+// runs every second and would otherwise close it again straight away,
+// since a key is already saved (reported 2026-09-29: it showed for half a
+// second and vanished).
+let editingKey = false;
 
 /*
  * Setting up a drive is two clicks: the first shows exactly what will be
@@ -199,8 +204,9 @@ function wirePanel() {
   async function render() {
     const st = tracker.status();
     const key = await getKey();
-    $("keyrow").style.display = key ? "none" : "flex";
+    $("keyrow").style.display = !key || editingKey ? "flex" : "none";
     $("changekey").style.display = key ? "block" : "none";
+    set("changekey", editingKey ? "cancel" : "change API key");
 
     const needs = (st.lastSummary && st.lastSummary.needsSetup) || [];
     renderSetup(needs);
@@ -328,6 +334,7 @@ function wirePanel() {
     const input = $("key");
     await setKey(input.value);
     input.value = "";
+    editingKey = false;
     note("checking key…");
     const workspaces = await shade.listWorkspaces();
     note(`key saved · sees ${workspaces.length} workspace(s)`);
@@ -336,8 +343,9 @@ function wirePanel() {
   });
 
   on("changekey", () => {
-    $("keyrow").style.display = "flex";
-    $("changekey").style.display = "none";
+    editingKey = !editingKey;          // the link doubles as "cancel"
+    $("key").value = "";
+    render();
   });
 
   on("sync", () => {
