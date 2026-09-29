@@ -139,7 +139,7 @@ async function run(reason) {
     lastNotTracked = null;
 
     log(`sync (${reason}) "${scan.name}": ${scan.timing.files} files, ` +
-        `${summary.onShade} on Shade, ${summary.written} written, ` +
+        `${summary.onShade} on Shade, ${summary.written} written` + sync.describeChanges(summary) + ", " +
         `${summary.skipped} not on Shade, walk ${scan.timing.ms}ms` +
         (summary.projectFileWaiting ? `, project file not indexed yet (retry ${fileRetries}/${PROJECT_FILE_RETRIES})` : "") +
         (summary.problems.length ? ` -- ${summary.problems.join("; ")}` : ""));

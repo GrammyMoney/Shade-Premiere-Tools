@@ -77,8 +77,29 @@ function planAsset(custom, fields, projectRecordId, usedHere) {
  */
 function needsWork(previous, usedHere) {
   if (!previous) return true;
+  // Written before asset ids were remembered: resolve once to learn it.
+  // Nothing is re-written if Shade is already right.
+  if (!previous.assetId) return true;
   if (usedHere && !previous.used) return true;
   return false;
 }
 
-module.exports = { planAsset, linkedIds, needsWork };
+/*
+ * "Project Media" on the .prproj asset: every Shade asset in the project.
+ *
+ * Merged, never replaced, like every other link we write -- the panel sees
+ * the live project and the CLI the last save, and neither may erase what
+ * the other added. Returns the full value to write, or null if nothing is
+ * missing.
+ *
+ * Note this is rewritten far more often than it looks: every save gives the
+ * .prproj a NEW asset in Shade (measured 2026-09-29), which starts empty.
+ */
+function planProjectMedia(currentValue, assetIds) {
+  const ids = linkedIds(currentValue);
+  const missing = [...new Set(assetIds)].filter((id) => !ids.includes(id));
+  if (!missing.length) return null;
+  return ids.concat(missing).map((id) => ({ id, type: "asset" }));
+}
+
+module.exports = { planAsset, linkedIds, needsWork, planProjectMedia };

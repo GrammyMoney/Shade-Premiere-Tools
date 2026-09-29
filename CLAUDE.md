@@ -82,6 +82,7 @@ In the **Adobe Sandbox** drive for now
 | object | `Projects` | custom object | `d31ed47a-f6b7-4796-bbd4-5db193c9123e` | one record per Premiere project |
 | Projects column | `Project GUID` | str | `11968d4d-a1f1-44dc-ab7d-95e3defbea30` | `Project.guid`: the identity key |
 | Projects column | `Project File` | relation → asset | `8550ba00-0017-4736-9522-9f92ee6f3aaa` | the `.prproj`, which lives on the drive |
+| asset field | `Project Media` | relation → asset | `857a7a3e-ef1a-45bc-be0a-4ea8a91023d5` | on a `.prproj`: the Shade media in it. Optional. |
 
 Created 2026-09-29 through the Shade MCP. **Look fields up by name at
 runtime; don't hard-code these IDs.** They're specific to this drive, and
@@ -135,6 +136,23 @@ nothing that can disagree with itself.
   - Moving a project onto Shade later makes it tracked from its next pass,
     under its new GUID. Nothing carries over from the local copy, and
     nothing needs to.
+- **Every save gives a `.prproj` a new asset in Shade.** (Measured
+  2026-09-29: Arbor Hills Sizzle's asset was re-created at the moment of a
+  save, and the record's Project File link to the old one vanished.)
+  Premiere saves by writing a new file and renaming it over the old one, and
+  Shade sees a new file. Consequences:
+  - **Project File** breaks on every save. Shade clears the link to the
+    deleted asset, and the next pass re-links it. Self-healing, no action.
+  - **Anything written onto the `.prproj` is wiped by a save**, and that
+    includes Project Media. So Project Media is checked on **every** pass,
+    not just when an asset changes, and rewritten in full when missing.
+  - The CLI repairs this naturally (a save makes the file "changed"). The
+    panel repairs it on the next edit, or through the project-file retry.
+    There is no save event in UXP.
+- **Project Media lists every Shade asset the project has held on that
+  drive**, from the append-only `written` map, and is merged into whatever
+  is there. So it over-reports, like everything else. It's written only if
+  the drive has the field.
 - **Never unset.** Neither boolean is cleared, and no project is removed from
   `Projects Used In`, when a clip is deleted from a bin or timeline. Wrongly
   calling an asset unused is the dangerous mistake for anything archival, and
@@ -384,6 +402,14 @@ GET    /workspaces/drives/{drive}/relation-targets?object_type=custom_object
   column on the other side, e.g. an automatic "Assets" column on Projects.
   Unexplored; worth a look before building any "assets in this project"
   view by hand.
+- **Two-way relations exist ("Two way reference" in the UI), but only at
+  creation.** A relation column created with
+  `relation_config: {target, inverse: {enabled: true, name: "<column on the other side>"}}`
+  gets a paired column on its target that mirrors it (`paired_to` set on
+  both). **It can't be turned on later:** PATCH on an asset column rejects
+  `relation_target`/`inverse` with 422 `extra_forbidden`. Create is
+  `POST /workspaces/drives/{d}/metadata/assets/columns` with
+  `{columns: [{column_name, column_type: "relation", relation_config}]}`.
 - There's no "find record by column value" route. Finding a Project by GUID
   means listing the type's records and matching locally. Cache the GUID →
   record ID map in the plugin's data folder.

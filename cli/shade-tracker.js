@@ -199,7 +199,7 @@ async function runDrive(drive, cliState, { full }) {
       const s = await sync.run(scan);
       written += s.written;
       log(`${drive.name}${rel}: ${scan.files.length} files, ${s.onShade} on Shade, ` +
-          `${s.written} written` + (group.copies > 1 ? `, ${group.copies} copies merged` : "") +
+          `${s.written} written` + sync.describeChanges(s) + (group.copies > 1 ? `, ${group.copies} copies merged` : "") +
           (s.notTracked ? `, not tracked (${s.notTracked})` : "") +
           (s.problems.length ? ` -- ${s.problems.join("; ")}` : ""));
       for (const p of parsed) if (p.project.guid === group.guid) ds.seen[p.entry.id] = p.entry.updated;

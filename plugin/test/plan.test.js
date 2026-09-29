@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { planAsset, linkedIds, needsWork } = require("../plan.js");
+const { planAsset, linkedIds, needsWork, planProjectMedia } = require("../plan.js");
 
 const F = { imported: "f-imp", used: "f-used", projects: "f-proj" };
 const link = (id, name = "x") => ({ entity_type: "custom_object", id, name, icon: null, color: null });
@@ -51,7 +51,26 @@ test("linkedIds tolerates junk and bare ids", () => {
 
 test("needsWork: new, newly used, or nothing", () => {
   assert.strictEqual(needsWork(undefined, false), true);
-  assert.strictEqual(needsWork({ used: false }, false), false);
-  assert.strictEqual(needsWork({ used: false }, true), true);
-  assert.strictEqual(needsWork({ used: true }, false), false);
+  assert.strictEqual(needsWork({ used: false, assetId: "a" }, false), false);
+  assert.strictEqual(needsWork({ used: false, assetId: "a" }, true), true);
+  assert.strictEqual(needsWork({ used: true, assetId: "a" }, false), false);
+});
+
+test("needsWork: an entry without an asset id is resolved once more", () => {
+  assert.strictEqual(needsWork({ used: true }, false), true);
+});
+
+test("project media: a fresh .prproj (every save is one) gets the whole list", () => {
+  assert.deepStrictEqual(planProjectMedia(undefined, ["a", "b", "a"]),
+    [{ id: "a", type: "asset" }, { id: "b", type: "asset" }]);
+});
+
+test("project media: merged, never replaced", () => {
+  const cur = [{ entity_type: "asset", id: "x", name: "x" }];
+  assert.deepStrictEqual(planProjectMedia(cur, ["a"]),
+    [{ id: "x", type: "asset" }, { id: "a", type: "asset" }]);
+});
+
+test("project media: nothing missing, nothing written", () => {
+  assert.strictEqual(planProjectMedia([{ id: "a" }, { id: "b" }], ["b", "a"]), null);
 });
