@@ -27,7 +27,8 @@ to `https://api.shade.inc` directly, and Shade is the only store.
 
 ## Current state
 
-**Phase: setup.** Repo created 2026-09-29. No plugin code yet.
+**Phase: setup.** Repo created 2026-09-29. The Shade schema exists in Adobe
+Sandbox (below). No plugin code yet.
 
 Blocked on one discovery step, see "Unknowns": the REST endpoints for custom
 objects are not documented.
@@ -37,19 +38,25 @@ objects are not documented.
 In the **Adobe Sandbox** drive for now
 (`72454409-8db3-4aba-86f4-53d3d5948b5a`, workspace *acme. Films*).
 
-| Where | Name | Type | Notes |
-|---|---|---|---|
-| asset field | `Imported?` | bool | the asset is in a project's bins |
-| asset field | `Used?` | bool | the asset is on a timeline |
-| asset field | `Projects Used In` | relation → Projects | appended to, never replaced |
-| object | `Projects` | custom object | one record per Premiere project |
-| Projects column | `Project GUID` | str | `Project.guid`: the identity key |
-| Projects column | `Project File` | relation → asset | the `.prproj`, which lives on the drive |
+| Where | Name | Type | ID | Notes |
+|---|---|---|---|---|
+| asset field | `Imported?` | bool | `be782155-a89f-4101-9e42-24dc2884d739` | the asset is in a project's bins |
+| asset field | `Used?` | bool | `dded2336-ad10-4b63-bdcc-88d5c460b913` | the asset is on a timeline |
+| asset field | `Projects Used In` | relation → Projects | `2239d488-117c-4e3e-b24c-cff21a592a66` | appended to, never replaced |
+| object | `Projects` | custom object | `d31ed47a-f6b7-4796-bbd4-5db193c9123e` | one record per Premiere project |
+| Projects column | `Project GUID` | str | `11968d4d-a1f1-44dc-ab7d-95e3defbea30` | `Project.guid`: the identity key |
+| Projects column | `Project File` | relation → asset | `8550ba00-0017-4736-9522-9f92ee6f3aaa` | the `.prproj`, which lives on the drive |
 
-**Status: not yet created.** On 2026-09-29, every write through the Shade MCP
-to this drive returned `503`, including a bare `create_type` with no columns.
-Reads worked. It's not yet known whether that was an outage or a permission
-problem surfacing as a 503. Record the real IDs here once these exist.
+Created 2026-09-29 through the Shade MCP. **Look fields up by name at
+runtime; don't hard-code these IDs.** They're specific to this drive, and
+another drive will have its own. The plugin should create any that are
+missing (or say which are missing) rather than assume they exist.
+
+**Shade intermittently returned `503` on writes that day.** Roughly half
+failed, reads never did. A 503 left nothing behind: every failed create was
+confirmed absent before retrying. So the plugin must retry 503s, and on a
+create it must re-check for existence before retrying, or a slow success
+turns into a duplicate.
 
 The pattern is proven on this drive already: assets there have a **Client**
 relation field pointing at a **Clients** custom object. Relations are **one
