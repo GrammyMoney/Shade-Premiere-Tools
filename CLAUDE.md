@@ -34,18 +34,32 @@ to `https://api.shade.inc` directly, and Shade is the only store.
 | Shade schema | Created in Adobe Sandbox (below). Projects table empty. |
 | `plugin/` | Written. 17 unit tests on the pure parts (`paths`, `plan`, `collapse`). |
 | sync against real Shade | **Verified end to end** with `tools/harness.js`: volume proven, record created, fields and links written, second project appended not replaced, repeat pass writes nothing, rename renames, Project File links. All test data deleted afterwards. |
-| inside Premiere | **Not yet run.** Events, the scan, `secureStorage`, `fetch` and reading file sizes are all unverified inside UXP. |
+| inside Premiere | **Working** (first load 2026-09-29, UDT, Premiere 26.5.1). Three projects, three clips from Adobe Sandbox; Shade matched the plugin's state exactly. |
 
-Next: load `plugin/` in UDT, add the key in the panel, import a clip from
-`/Volumes/Adobe Sandbox`, and watch the panel and Shade.
+**Verified inside Premiere on first load:** the key panel (`<input
+type="password">`, `secureStorage` round trip), `fetch` to api.shade.inc,
+all four global events plus per-project `DIRTY`, the scan (1–3ms), proving
+the volume from a real clip, **reading local file sizes** (no
+`cannot read local file sizes` warning), creating records, appending links
+across three projects, and zero-write repeat passes.
 
-Things to watch for on first load, in order of likelihood:
-- **Local file sizes.** `resolve.js` tries `require("fs").lstat` and then
-  `getEntryWithUrl(...).getMetadata()`. If both fail, the log says
-  `cannot read local file sizes` and drive matching falls back to path only.
-- **`<input type="password">`** in the panel is unverified in UXP.
-- **`secureStorage.getItem`** is documented to return bytes. It's decoded as
-  ASCII, and a string is also accepted, in case it returns one.
+**Fixed after first load:**
+- **400ms after `IMPORT_MEDIA_COMPLETE` was too early for an import.** It
+  found 0 files, and the clip was picked up 10s later by an unrelated event.
+  An import now also gets a follow-up pass 2.5s later.
+- **Project File was never linked.** Shade indexed the `.prproj` 3s and 18s
+  *after* the pass that looked for it, and nothing triggered another pass.
+  Now a project whose `.prproj` is on a Shade drive but not indexed yet
+  retries every 20s, up to 6 times.
+- **Record names included `.prproj`.** `Project.name` includes the
+  extension. It's now stripped, and existing records are renamed on their
+  next pass (verified against the real "New Tracker" record).
+
+**Open question:** "Tracker Test.prproj" has two records with two different
+GUIDs, the second created at 14:57:31, 4s after the file on disk was
+modified. If that was a new project or a Save As under the same name, it's
+correct. If Premiere changes `Project.guid` on a routine save or reopen, the
+identity key is broken and needs rethinking. Find out which.
 
 ## The Shade model
 

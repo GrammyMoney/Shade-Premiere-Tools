@@ -16,6 +16,7 @@ const shade = require("./shade.js");
 const store = require("./store.js");
 const { resolveFile } = require("./resolve.js");
 const { planAsset, needsWork } = require("./plan.js");
+const { splitVolume, projectDisplayName } = require("./paths.js");
 
 const FIELD = { imported: "Imported?", used: "Used?", projects: "Projects Used In" };
 const COLUMN = { guid: "Project GUID", file: "Project File" };
@@ -106,6 +107,7 @@ async function findByGuid(driveId, schema, guid) {
  */
 async function projectRecord(driveId, schema, scan) {
   const st = await store.load();
+  const name = projectDisplayName(scan.name);
   const key = driveId + ":" + scan.guid;
 
   let record = null;
@@ -117,7 +119,7 @@ async function projectRecord(driveId, schema, scan) {
 
   if (!record) {
     const body = {
-      name: scan.name || "Untitled project",
+      name: name || "Untitled project",
       metadata: { [schema.guidColumn]: { kind: "scalar", value: scan.guid } }
     };
     for (let attempt = 1; !record; attempt++) {
@@ -137,13 +139,13 @@ async function projectRecord(driveId, schema, scan) {
     await store.save();
   }
 
-  if (scan.name && record.name !== scan.name) {
-    await shade.patchRecord(driveId, schema.typeId, record.id, { name: scan.name });
-    log(`renamed project record to "${scan.name}"`);
+  if (name && record.name !== name) {
+    await shade.patchRecord(driveId, schema.typeId, record.id, { name });
+    log(`renamed project record to "${name}"`);
   }
 
-  await linkProjectFile(driveId, schema, record, scan);
-  return record.id;
+  const file = await linkProjectFile(driveId, schema, record, scan);
+  return { id: record.id, file };
 }
 
 /*
@@ -154,17 +156,27 @@ async function projectRecord(driveId, schema, scan) {
  * this same drive can be linked -- a relation cannot cross drives.
  */
 async function linkProjectFile(driveId, schema, record, scan) {
-  if (!schema.fileColumn || !scan.path) return;
+  if (!schema.fileColumn || !scan.path) return "n/a";
   const found = await resolveFile(scan.path).catch(() => null);
-  if (!found || found.driveId !== driveId) return;
+  if (!found) {
+    // On this drive's volume but not found: Shade has not indexed it yet.
+    // Measured on first load: .prproj files indexed 3s and 18s after the
+    // pass that looked for them. The caller schedules a retry for this.
+    const v = splitVolume(scan.path);
+    const st = await store.load();
+    const known = v && st.volumes[v.root];
+    return known && known.driveId === driveId ? "waiting" : "n/a";
+  }
+  if (found.driveId !== driveId) return "n/a";
   const current = relationIdsOf(record, schema.fileColumn);
-  if (current.length === 1 && current[0] === found.asset.id) return;
+  if (current.length === 1 && current[0] === found.asset.id) return "linked";
   await shade.patchRecord(driveId, schema.typeId, record.id, {
     metadata: {
       [schema.fileColumn]: { kind: "relation", values: [{ id: found.asset.id, type: "asset" }] }
     }
   });
   log(`linked project file ${found.asset.name}`);
+  return "linked";
 }
 
 /* ---------------------------------------------------------------- run */
@@ -187,7 +199,9 @@ async function run(scan) {
   // onShade: files resolved to a Shade asset. written: assets whose values
   // changed this pass. skipped: local, unproven, or not indexed yet.
   // pending: on Shade but blocked, e.g. the drive lacks the fields.
-  const summary = { onShade: 0, written: 0, pending: 0, skipped: 0, problems: [] };
+  // projectFileWaiting: the .prproj is on a Shade drive but not indexed yet.
+  const summary = { onShade: 0, written: 0, pending: 0, skipped: 0, problems: [],
+                    projectFileWaiting: false };
 
   // Resolve only what needs work. An asset already written, and not newly
   // used, costs no request at all -- a DIRTY during ordinary editing
@@ -233,7 +247,9 @@ async function run(scan) {
       continue;
     }
 
-    const recordId = await projectRecord(driveId, schema, scan);
+    const project = await projectRecord(driveId, schema, scan);
+    const recordId = project.id;
+    if (project.file === "waiting") summary.projectFileWaiting = true;
     const key = driveId + ":" + scan.guid;
     const written = st.written[key] || (st.written[key] = {});
 

@@ -107,7 +107,7 @@ function wireGlobalEvents() {
   wire("ProjectEvent.OPENED", PE.OPENED, onOpened);
   wire("ProjectEvent.ACTIVATED", PE.ACTIVATED, onOpened);
   wire("OperationCompleteEvent.IMPORT_MEDIA_COMPLETE", OE.IMPORT_MEDIA_COMPLETE,
-       () => tracker.requestNow("import"));
+       () => tracker.afterImport());
   wire("SequenceEvent.ACTIVATED", SE.ACTIVATED, () => tracker.request("sequence_activated"));
 
   log(`bound ${bound.length} global event(s): ${bound.join(", ") || "none"}`);

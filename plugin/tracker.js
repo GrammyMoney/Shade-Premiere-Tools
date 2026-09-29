@@ -24,12 +24,31 @@ const DEBOUNCE_MS = 3000;
  */
 const SETTLE_MS = 400;
 
+/*
+ * ...but 400ms is not always enough. Measured on first load: a scan 400ms
+ * after IMPORT_MEDIA_COMPLETE found 0 files, and the clip was only picked up
+ * 10s later by an unrelated event. So an import also gets one follow-up.
+ */
+const IMPORT_FOLLOWUP_MS = 2500;
+
+/*
+ * A .prproj on a Shade drive is indexed by Shade seconds after it is saved
+ * (measured: 3s and 18s after the pass that looked for it), and without an
+ * edit there would be no later pass to link it. So retry on our own, a few
+ * times, then give up until the next event.
+ */
+const PROJECT_FILE_RETRY_MS = 20000;
+const PROJECT_FILE_RETRIES = 6;
+
 let ppro = null;
 let onProjectSeen = null;
 let hasKey = async () => false;
 let timer = null;
 let running = false;
 let rerun = null;
+let followTimer = null;      // one-off follow-ups; separate from the debounce
+let fileRetries = 0;
+let lastGuid = null;
 
 const state = {
   lastRunAt: null, lastScan: null, lastSummary: null, lastError: null,
@@ -54,6 +73,20 @@ const request = (reason) => schedule(reason, DEBOUNCE_MS);
 /* For deliberate actions: the editor should not wait three seconds. */
 const requestNow = (reason) => schedule(reason, SETTLE_MS);
 
+/*
+ * A pass at a set time, whatever else happens. Not the debounce timer: a
+ * stream of DIRTY events must not push this back indefinitely.
+ */
+function followUp(reason, ms) {
+  if (followTimer) clearTimeout(followTimer);
+  followTimer = setTimeout(() => { followTimer = null; requestNow(reason); }, ms);
+}
+
+function afterImport() {
+  requestNow("import");
+  followUp("import_followup", IMPORT_FOLLOWUP_MS);
+}
+
 async function run(reason) {
   if (!ppro) return;
   running = true;
@@ -68,6 +101,7 @@ async function run(reason) {
     const scan = await scanProject(ppro, project);
     if (!scan || !scan.guid) { log("scan produced nothing usable"); return; }
     state.project = scan.name;
+    if (scan.guid !== lastGuid) { lastGuid = scan.guid; fileRetries = 0; }
     if (onProjectSeen) {
       try { onProjectSeen(scan.guid); } catch (e) { /* never break a run */ }
     }
@@ -79,9 +113,17 @@ async function run(reason) {
     state.lastError = summary.problems.length ? summary.problems[0] : null;
     state.runs++;
 
+    if (summary.projectFileWaiting && fileRetries < PROJECT_FILE_RETRIES) {
+      fileRetries++;
+      followUp("project_file", PROJECT_FILE_RETRY_MS);
+    } else if (!summary.projectFileWaiting) {
+      fileRetries = 0;
+    }
+
     log(`sync (${reason}) "${scan.name}": ${scan.timing.files} files, ` +
         `${summary.onShade} on Shade, ${summary.written} written, ` +
         `${summary.skipped} not on Shade, walk ${scan.timing.ms}ms` +
+        (summary.projectFileWaiting ? `, project file not indexed yet (retry ${fileRetries}/${PROJECT_FILE_RETRIES})` : "") +
         (summary.problems.length ? ` -- ${summary.problems.join("; ")}` : ""));
   } catch (e) {
     // A failed pass loses nothing: the next DIRTY scans the whole project
@@ -98,4 +140,4 @@ function status() {
   return { ...state, pending: !!timer, running };
 }
 
-module.exports = { init, request, requestNow, status };
+module.exports = { init, request, requestNow, afterImport, status };

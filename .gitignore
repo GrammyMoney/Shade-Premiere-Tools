@@ -3,3 +3,4 @@ node_modules/
 *.ccx
 .env
 .env.*
+*.log

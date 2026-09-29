@@ -45,4 +45,13 @@ function mountRootFor(driveName) {
   return "/Volumes/" + driveName;
 }
 
-module.exports = { splitVolume, shadePath, mountRootFor };
+/*
+ * What a Projects record is called. Premiere's Project.name includes the
+ * extension ("New Tracker.prproj"), which is noise in a list of projects.
+ */
+function projectDisplayName(name) {
+  if (typeof name !== "string") return null;
+  return name.replace(/\.prproj$/i, "").trim() || null;
+}
+
+module.exports = { splitVolume, shadePath, mountRootFor, projectDisplayName };
