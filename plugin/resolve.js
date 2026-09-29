@@ -8,25 +8,29 @@
  *      a candidate. Shade mounts a drive under its display name.
  *   2. For each candidate, look up /<driveId><rest>. It is a match only if
  *      the asset exists AND its size equals the local file's.
- *   3. On the first match, remember /Volumes/<X> -> driveId, and resolve
- *      everything else under it directly.
+ *   3. On the first match, remember /Volumes/<X> -> driveId for the session,
+ *      and resolve everything else under it directly.
  *
  * Names are not unique (two drives called "Joe Test" were visible to one
  * key), so a name only nominates; the file decides. And a 404 proves
  * nothing -- the file may just not be indexed yet -- so a volume without a
- * match is never recorded as "not Shade". It is simply asked about again
- * with the next file.
+ * match is never remembered as "not Shade". It is asked about again with the
+ * next file.
+ *
+ * Nothing here is saved between sessions. Re-proving a volume costs one
+ * lookup, and a map that outlives a remount or a key change is a map that
+ * can be wrong.
  */
 
 const { log } = require("./log.js");
 const shade = require("./shade.js");
-const store = require("./store.js");
 const { splitVolume, shadePath } = require("./paths.js");
 const { platform } = require("./platform.js");
 
 const DRIVE_LIST_TTL_MS = 10 * 60 * 1000;
 let drives = null;            // [{ id, name }]
 let drivesAt = 0;
+const volumes = new Map();    // "/Volumes/X" -> { driveId, name }
 let sizeWarned = false;
 
 async function allDrives(force) {
@@ -56,21 +60,25 @@ async function localSize(path) {
 }
 
 /*
- * Resolve one media path. Returns { driveId, asset } or null.
+ * Resolve one media path. Always returns an object saying which case it is,
+ * because the cases need different handling:
  *
- * null covers three different situations that all mean "nothing to write
- * yet": not on a volume at all, on a volume that is not (or not yet proven
- * to be) a Shade drive, and on a Shade drive but not indexed yet.
+ *   { status: "local" }             not under /Volumes/: never ours
+ *   { status: "unknown" }           on a volume no Shade drive has claimed
+ *   { status: "missing", driveId }  on a Shade drive, but Shade has no such
+ *                                   asset yet -- usually not indexed yet, so
+ *                                   worth a retry
+ *   { status: "found", driveId, asset }
  */
 async function resolveFile(mediaPath) {
   const v = splitVolume(mediaPath);
-  if (!v) return null;
+  if (!v) return { status: "local" };
 
-  const st = await store.load();
-  const known = st.volumes[v.root];
+  const known = volumes.get(v.root);
   if (known) {
     const asset = await shade.assetByPath(known.driveId, shadePath(known.driveId, v.rest));
-    return asset ? { driveId: known.driveId, asset } : null;
+    return asset ? { status: "found", driveId: known.driveId, asset }
+                 : { status: "missing", driveId: known.driveId };
   }
 
   let candidates = (await allDrives()).filter((d) => d.name === v.name);
@@ -78,7 +86,7 @@ async function resolveFile(mediaPath) {
     // Maybe a drive created or shared since we last looked.
     candidates = (await allDrives(true)).filter((d) => d.name === v.name);
   }
-  if (!candidates.length) return null;
+  if (!candidates.length) return { status: "unknown" };
 
   const size = await localSize(mediaPath);
   for (const d of candidates) {
@@ -89,15 +97,32 @@ async function resolveFile(mediaPath) {
           `(${asset.size_bytes} vs ${size}); not this drive`);
       continue;
     }
-    st.volumes[v.root] = { driveId: d.id, name: d.name };
-    await store.save();
+    rememberVolume(v.root, d.id, d.name);
     log(`${v.root} is Shade drive "${d.name}" (${d.id.slice(0, 8)}), proven by ${v.rest}`);
-    return { driveId: d.id, asset };
+    return { status: "found", driveId: d.id, asset };
   }
-  return null;
+  return { status: "unknown" };
 }
 
-/* Forget the drive list, e.g. after the API key changes. */
-function forgetDrives() { drives = null; drivesAt = 0; }
+/* The drive a volume is known to be, if any. */
+function driveForVolume(root) {
+  const v = volumes.get(root);
+  return v ? v.driveId : null;
+}
 
-module.exports = { resolveFile, forgetDrives };
+/*
+ * Record a volume as a drive without proving it -- for a caller that already
+ * knows, like the CLI, which found the .prproj by listing that drive.
+ */
+function rememberVolume(root, driveId, name) {
+  volumes.set(root, { driveId, name });
+}
+
+/* Forget everything, e.g. after the API key changes. */
+function forget() {
+  drives = null;
+  drivesAt = 0;
+  volumes.clear();
+}
+
+module.exports = { resolveFile, driveForVolume, rememberVolume, forget };

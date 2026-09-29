@@ -1,20 +1,30 @@
 /*
- * One scan -> the writes Shade needs.
+ * One scan -> the writes Shade needs. Shared by the panel and the CLI.
  *
  * For each file in the project that lives on a Shade drive:
  *   Imported? = true, Used? = true if on a timeline (never set false), and
  *   this project added to Projects Used In (keeping every other link).
- * The rules themselves are in plan.js; this file is the plumbing.
+ * And on the project's .prproj, Project Media lists those files.
+ * The rules themselves are in plan.js; this file is the plumbing:
+ *
+ *   run(scan)
+ *     projectHome()   is this project on Shade at all?
+ *     resolveFiles()  which of its files are Shade assets, by drive
+ *     syncDrive()     per drive: schema, project record, asset writes,
+ *                     Project Media
  *
  * Custom objects are per drive, so a project whose media spans two Shade
- * drives gets a Projects record on each. That is correct rather than a
- * compromise: each drive's assets can only link to that drive's records.
+ * drives gets a Projects record on each. Each drive's assets can only link
+ * to that drive's records.
+ *
+ * Everything remembered here lasts one session (one Premiere launch, or one
+ * CLI run). Nothing is saved: the first pass after a launch re-checks every
+ * asset once, which is also what puts back a link someone removed by hand.
  */
 
 const { log } = require("./log.js");
 const shade = require("./shade.js");
-const store = require("./store.js");
-const { resolveFile } = require("./resolve.js");
+const { resolveFile, driveForVolume } = require("./resolve.js");
 const { planAsset, needsWork, planProjectMedia } = require("./plan.js");
 const { splitVolume, projectDisplayName } = require("./paths.js");
 
@@ -22,6 +32,17 @@ const FIELD = { imported: "Imported?", used: "Used?", projects: "Projects Used I
                 projectMedia: "Project Media" };
 const COLUMN = { guid: "Project GUID", file: "Project File" };
 const WRITE_BATCH = 50;
+
+/*
+ * Session memory, keyed "<driveId>:<projectGuid>".
+ *   records  -> Projects record id
+ *   written  -> Map(mediaPath -> { used, assetId }): what this session has
+ *               already told Shade, so an unchanged asset costs no request
+ *               on the next DIRTY.
+ */
+const records = new Map();
+const written = new Map();
+const keyOf = (driveId, guid) => driveId + ":" + guid;
 
 /* ------------------------------------------------------------- schema */
 
@@ -38,15 +59,12 @@ const SCHEMA_TTL_MS = 10 * 60 * 1000;
 class MissingSchema extends Error {}
 
 /*
- * Field ids for a drive, looked up by name every session.
+ * Field ids for a drive, looked up by name. Never hard-coded: ids differ per
+ * drive. The Projects object is found by following "Projects Used In" to its
+ * target, so renaming the object in Shade's UI does not break us.
  *
- * Never hard-coded: ids differ per drive. The Projects object is found by
- * following the "Projects Used In" relation to its target, not by its name,
- * so renaming the object in Shade's UI does not break us.
- *
- * Missing fields are reported, not created. Creating schema on someone's
- * drive is a decision for a person, and a typo'd field name here would
- * otherwise quietly spawn a second set of columns.
+ * Missing fields are reported, not created here: `shade-tracker setup`
+ * creates them, when a person decides to.
  */
 async function schemaFor(driveId) {
   const cached = schemas.get(driveId);
@@ -55,36 +73,37 @@ async function schemaFor(driveId) {
   const fields = (await shade.listFields(driveId)) || [];
   const live = fields.filter((f) => !f.archived && !f.deleted && f.location === "custom");
   const byName = (name) => live.find((f) => f.name === name);
+  const targetOf = (f) => (f && f.relation_config && f.relation_config.target) || null;
 
-  const missing = [];
   const imported = byName(FIELD.imported);
   const used = byName(FIELD.used);
   const projects = byName(FIELD.projects);
+  const target = targetOf(projects);
+  const missing = [];
   if (!imported || imported.value_type !== "bool") missing.push(`"${FIELD.imported}" (yes/no)`);
   if (!used || used.value_type !== "bool") missing.push(`"${FIELD.used}" (yes/no)`);
-  const target = projects && projects.relation_config && projects.relation_config.target;
-  if (!projects || !target || target.kind !== "custom_object") {
+  if (!target || target.kind !== "custom_object") {
     missing.push(`"${FIELD.projects}" (relation to a custom object)`);
   }
-  if (missing.length) throw new MissingSchema("drive is missing " + missing.join(", "));
+  if (missing.length) {
+    throw new MissingSchema(`drive is missing ${missing.join(", ")}; run shade-tracker setup`);
+  }
 
   const type = await shade.getObjectType(driveId, target.database_id);
   const col = (name) => (type.columns || []).find((c) => c.column_name === name && !c.archive);
   const guid = col(COLUMN.guid);
   const file = col(COLUMN.file);
   if (!guid) {
-    throw new MissingSchema(`"${type.name}" has no "${COLUMN.guid}" column`);
+    throw new MissingSchema(`"${type.name}" has no "${COLUMN.guid}" column; run shade-tracker setup`);
   }
 
-  // Optional: "Project Media" on the .prproj, listing its media. Written only
-  // if the drive has it, as a relation to assets.
+  // Optional: Project Media on the .prproj, as a relation to assets.
   const pm = byName(FIELD.projectMedia);
-  const projectMedia = pm && pm.value_type === "relation" && pm.relation_config &&
-    pm.relation_config.target && pm.relation_config.target.kind === "asset" ? pm.id : null;
+  const pmTarget = targetOf(pm);
 
   const schema = {
-    projectMedia,
     fields: { imported: imported.id, used: used.id, projects: projects.id },
+    projectMedia: pmTarget && pmTarget.kind === "asset" ? pm.id : null,
     typeId: type.id,
     typeName: type.name,
     guidColumn: guid.id,
@@ -96,42 +115,36 @@ async function schemaFor(driveId) {
 
 /* ------------------------------------------------------ project record */
 
-function scalarOf(record, columnId) {
-  const v = (record.metadata_values || []).find((m) => m.id === columnId);
-  return v ? v.value : undefined;
-}
+const valueOf = (record, columnId) =>
+  (record.metadata_values || []).find((m) => m.id === columnId);
 
 function relationIdsOf(record, columnId) {
-  const v = (record.metadata_values || []).find((m) => m.id === columnId);
+  const v = valueOf(record, columnId);
   const list = v && (v.values || v.value);
   return Array.isArray(list) ? list.map((x) => (x && x.id) || x) : [];
 }
 
 async function findByGuid(driveId, schema, guid) {
   const all = await shade.listAllRecords(driveId, schema.typeId);
-  return all.find((r) => scalarOf(r, schema.guidColumn) === guid) || null;
+  return all.find((r) => (valueOf(r, schema.guidColumn) || {}).value === guid) || null;
 }
 
 /*
  * The Projects record for this project on this drive: found, or created.
  *
- * Identity is Project.guid, never the name, so a rename or a Save As does
- * not make a second record. The name is refreshed to match on every pass.
+ * Identity is Project.guid, never the name, so a rename does not make a
+ * second record. (Save As does: it gives the copy a new guid.) The name is
+ * refreshed to match on every pass.
  *
  * A create that fails is checked for before retrying: Shade's 503s have so
  * far left nothing behind, but a slow success that we retried would be a
  * duplicate record that every future lookup has to choose between.
  */
 async function projectRecord(driveId, schema, scan) {
-  const st = await store.load();
+  const key = keyOf(driveId, scan.guid);
   const name = projectDisplayName(scan.name);
-  const key = driveId + ":" + scan.guid;
 
-  let record = null;
-  if (st.projects[key]) {
-    record = await shade.getRecord(driveId, schema.typeId, st.projects[key]);
-    if (!record) log(`project record for ${scan.name} was deleted in Shade; recreating`);
-  }
+  let record = records.has(key) ? await shade.getRecord(driveId, schema.typeId, records.get(key)) : null;
   if (!record) record = await findByGuid(driveId, schema, scan.guid);
 
   if (!record) {
@@ -150,71 +163,52 @@ async function projectRecord(driveId, schema, scan) {
       }
     }
   }
-
-  if (st.projects[key] !== record.id) {
-    st.projects[key] = record.id;
-    await store.save();
-  }
+  records.set(key, record.id);
 
   if (name && record.name !== name) {
     await shade.patchRecord(driveId, schema.typeId, record.id, { name });
     log(`renamed project record to "${name}"`);
   }
-
-  const file = await linkProjectFile(driveId, schema, record, scan);
-  return { id: record.id, file: file.status, fileAsset: file.asset || null };
+  return record;
 }
 
 /*
- * Point "Project File" at the .prproj asset.
+ * The .prproj's own asset, linked as the record's "Project File".
  *
- * A project saved a moment ago is usually not indexed by Shade yet, so not
- * finding it is normal and simply retried on a later pass. Only a .prproj on
- * this same drive can be linked -- a relation cannot cross drives.
+ * Returns { asset } when found, { retry: true } when the .prproj is on this
+ * drive but not in Shade yet, or {} when it is elsewhere. A relation cannot
+ * cross drives, so only a .prproj on this drive is linked.
+ *
+ * Every save gives the .prproj a NEW asset (measured 2026-09-29): Shade
+ * clears the link to the old one, and this puts it back on the next pass.
  */
-async function linkProjectFile(driveId, schema, record, scan) {
-  if (!scan.path) return { status: "n/a" };
-  const found = await resolveFile(scan.path).catch(() => null);
-  if (!found) {
-    // On this drive's volume but not found: Shade has not indexed it yet.
-    // Measured on first load: .prproj files indexed 3s and 18s after the
-    // pass that looked for them. The caller schedules a retry for this.
-    const v = splitVolume(scan.path);
-    const st = await store.load();
-    const known = v && st.volumes[v.root];
-    return { status: known && known.driveId === driveId ? "waiting" : "n/a" };
-  }
-  if (found.driveId !== driveId) return { status: "n/a" };
-  const linked = { status: "linked", asset: found.asset };
-  if (!schema.fileColumn) return linked;
-  const current = relationIdsOf(record, schema.fileColumn);
-  if (current.length === 1 && current[0] === found.asset.id) return linked;
-  await shade.patchRecord(driveId, schema.typeId, record.id, {
-    metadata: {
-      [schema.fileColumn]: { kind: "relation", values: [{ id: found.asset.id, type: "asset" }] }
+async function projectFile(driveId, schema, record, scan) {
+  if (!scan.path) return {};
+  const r = await resolveFile(scan.path).catch(() => ({}));
+  if (r.driveId !== driveId) return {};
+  if (r.status !== "found") return { retry: true };
+
+  if (schema.fileColumn) {
+    const current = relationIdsOf(record, schema.fileColumn);
+    if (!(current.length === 1 && current[0] === r.asset.id)) {
+      await shade.patchRecord(driveId, schema.typeId, record.id, {
+        metadata: { [schema.fileColumn]: { kind: "relation", values: [{ id: r.asset.id, type: "asset" }] } }
+      });
+      log(`linked project file ${r.asset.name}`);
     }
-  });
-  log(`linked project file ${found.asset.name}`);
-  return linked;
+  }
+  return { asset: r.asset };
 }
 
 /*
- * List the project's media on its .prproj asset ("Project Media").
- *
- * Every Shade asset this project has ever held on this drive -- the written
- * map is append-only, so this over-reports rather than forgets, like
- * everything else here. The .prproj has to be on the same drive: a relation
- * cannot cross drives.
- *
- * Checked on every pass, not just when an asset changes, because every save
- * gives the .prproj a new asset that starts empty (measured 2026-09-29).
+ * List the project's media on its .prproj ("Project Media"), merged into
+ * whatever is there. Checked on every pass, not just when an asset changes,
+ * because every save gives the .prproj a new asset that starts empty.
  */
-async function writeProjectMedia(driveId, schema, prproj, written, scan) {
-  if (!schema.projectMedia || !prproj) return;
-  const ids = Object.values(written).map((w) => w.assetId).filter(Boolean);
-  if (!ids.length) return;
-  const custom = prproj.custom_metadata || {};
-  const value = planProjectMedia(custom[schema.projectMedia], ids);
+async function writeProjectMedia(driveId, schema, prproj, done) {
+  if (!schema.projectMedia || !prproj || !done.size) return;
+  const ids = [...done.values()].map((w) => w.assetId);
+  const value = planProjectMedia((prproj.custom_metadata || {})[schema.projectMedia], ids);
   if (!value) return;
   await shade.putAssetValues(driveId, [{
     asset_id: prproj.id,
@@ -223,160 +217,145 @@ async function writeProjectMedia(driveId, schema, prproj, written, scan) {
   log(`listed ${value.length} asset(s) on ${prproj.name}`);
 }
 
-/* ---------------------------------------------------------------- run */
-
-/* Everything already written for this project, across every drive. */
-function priorWrites(st, guid) {
-  const out = {};
-  for (const [key, written] of Object.entries(st.written)) {
-    if (key.endsWith(":" + guid)) Object.assign(out, written);
-  }
-  return out;
-}
+/* --------------------------------------------------------------- steps */
 
 /*
  * Is this project one we track? Only if its .prproj is on a Shade drive.
- * (Decided 2026-09-29.)
+ * (Decided 2026-09-29: Save As gives the copy a new guid, so a project
+ * started locally and then saved onto the drive produced two records.)
  *
- * Why: Save As gives the copy a new Project.guid. An editor who starts a
- * project locally and then saves it onto the Shade drive produced two
- * records -- the local original's and the real one -- with every clip linked
- * to both. A project that is not on Shade is not shared, so it is not ours
- * to report.
- *
- *   unsaved  no path yet: nothing to track until it is saved
+ *   unsaved  no path yet
  *   local    .prproj not under /Volumes/, or on a volume that is not Shade
- *   waiting  on a volume not yet proven to be Shade; retried
- *   shade    tracked
+ *   waiting  on a volume not yet proven to be Shade; worth a retry
+ *   tracked
  *
- * The .prproj itself need not be indexed: Shade indexes a new save seconds
- * later (3-18s measured). A proven volume is enough. On an unproven volume,
- * the project file or any clip on the same volume can prove it.
+ * The .prproj itself need not be indexed yet (3-18s after a save,
+ * measured): a proven volume is enough, and on an unproven one the project
+ * file or any clip on that volume can prove it.
  */
 async function projectHome(scan) {
-  if (!scan.path) return { status: "unsaved" };
+  if (!scan.path) return "unsaved";
   const v = splitVolume(scan.path);
-  if (!v) return { status: "local" };
-
-  const st = await store.load();
-  if (st.volumes[v.root]) return { status: "shade", driveId: st.volumes[v.root].driveId };
+  if (!v) return "local";
+  if (driveForVolume(v.root)) return "tracked";
 
   const witnesses = [scan.path].concat(
     scan.files.map((f) => f.mediaPath).filter((p) => p.startsWith(v.root + "/")).slice(0, 3));
   for (const p of witnesses) {
-    const found = await resolveFile(p).catch(() => null);
-    if (found) return { status: "shade", driveId: found.driveId };
+    const r = await resolveFile(p).catch(() => ({}));
+    if (r.driveId) return "tracked";
   }
-  return { status: "waiting" };
+  return "waiting";
 }
 
 /*
- * Returns a summary for the panel: how many files were on Shade, how many
- * needed a write, and what could not be done yet.
+ * Which files are Shade assets, grouped by drive. A file this session has
+ * already written, and that has not since been put on a timeline, is
+ * skipped without a request -- a DIRTY during ordinary editing usually ends
+ * here with nothing to do.
+ */
+async function resolveFiles(scan, summary) {
+  const byDrive = new Map();
+  const prior = new Map();
+
+  // Drives this project already has a record on are always visited, so a
+  // rename or a newly indexed .prproj is picked up without waiting for an
+  // asset to change. (Measured: a renamed project kept its old name.)
+  for (const [key, done] of written) {
+    if (!key.endsWith(":" + scan.guid)) continue;
+    byDrive.set(key.slice(0, -(scan.guid.length + 1)), []);
+    for (const [p, w] of done) prior.set(p, w);
+  }
+
+  for (const f of scan.files) {
+    const prev = prior.get(f.mediaPath);
+    if (prev) summary.onShade++;
+    if (!needsWork(prev, f.used)) continue;
+
+    let r;
+    try {
+      r = await resolveFile(f.mediaPath);
+    } catch (e) {
+      summary.problems.push(e.message);
+      continue;
+    }
+    if (r.status === "missing") summary.retry = true;     // on Shade, not indexed yet
+    if (r.status !== "found") continue;
+    if (!prev) summary.onShade++;
+    if (!byDrive.has(r.driveId)) byDrive.set(r.driveId, []);
+    byDrive.get(r.driveId).push({ file: f, asset: r.asset });
+  }
+  return byDrive;
+}
+
+/* One drive: schema, record, asset writes, Project Media. */
+async function syncDrive(driveId, entries, scan, summary) {
+  let schema;
+  try {
+    schema = await schemaFor(driveId);
+  } catch (e) {
+    summary.problems.push(e.message);
+    return;
+  }
+
+  const record = await projectRecord(driveId, schema, scan);
+  const prproj = await projectFile(driveId, schema, record, scan);
+  if (prproj.retry) summary.retry = true;
+
+  const key = keyOf(driveId, scan.guid);
+  if (!written.has(key)) written.set(key, new Map());
+  const done = written.get(key);
+  const remember = ({ file, asset }) => done.set(file.mediaPath, { used: !!file.used, assetId: asset.id });
+
+  const updates = [];
+  for (const e of entries) {
+    const values = planAsset(e.asset.custom_metadata, schema.fields, record.id, e.file.used);
+    if (values) updates.push({ entry: e, values });
+    else remember(e);                         // Shade already right
+  }
+
+  const fieldName = { [schema.fields.imported]: "imported", [schema.fields.used]: "used",
+                      [schema.fields.projects]: "linked" };
+  for (let i = 0; i < updates.length; i += WRITE_BATCH) {
+    const batch = updates.slice(i, i + WRITE_BATCH);
+    await shade.putAssetValues(driveId, batch.map((u) =>
+      ({ asset_id: u.entry.asset.id, metadata_attributes: u.values })));
+    summary.written += batch.length;
+    for (const u of batch) {
+      remember(u.entry);
+      // Say WHICH field each write fixed; otherwise a write on an asset
+      // that "should" already be right is impossible to explain afterwards.
+      for (const v of u.values) summary.changes[fieldName[v.id]]++;
+    }
+  }
+
+  await writeProjectMedia(driveId, schema, prproj.asset, done);
+}
+
+/* ----------------------------------------------------------------- run */
+
+/*
+ * The summary, for the panel and the CLI's log:
+ *   status    tracked | unsaved | local | waiting
+ *   onShade   files that are Shade assets
+ *   written   assets whose values changed this pass
+ *   changes   { imported, used, linked }: which fields those writes fixed
+ *   retry     Shade has not caught up yet -- a file or the .prproj not
+ *             indexed, or a volume not proven. Worth another pass soon.
+ *   problems  messages worth showing
  */
 async function run(scan) {
-  const st = await store.load();
-  // notTracked: why this project is skipped entirely (null when tracked).
-  // onShade: files resolved to a Shade asset. written: assets whose values
-  // changed this pass. skipped: local, unproven, or not indexed yet.
-  // pending: on Shade but blocked, e.g. the drive lacks the fields.
-  // projectFileWaiting: the .prproj is on a Shade drive but not indexed yet.
-  const summary = { notTracked: null, onShade: 0, written: 0, pending: 0, skipped: 0,
-                    problems: [], projectFileWaiting: false,
-                    changes: { imported: 0, used: 0, linked: 0 } };
+  const summary = { status: "tracked", onShade: 0, written: 0,
+                    changes: { imported: 0, used: 0, linked: 0 }, retry: false, problems: [] };
 
-  const home = await projectHome(scan);
-  if (home.status !== "shade") {
-    summary.notTracked = home.status;
-    // An unproven volume may just be a drive Shade has not indexed anything
-    // on yet. Retry like a missing project file, then wait for an event.
-    if (home.status === "waiting") summary.projectFileWaiting = true;
+  summary.status = await projectHome(scan);
+  if (summary.status !== "tracked") {
+    summary.retry = summary.status === "waiting";
     return summary;
   }
 
-  // Resolve only what needs work. An asset already written, and not newly
-  // used, costs no request at all -- a DIRTY during ordinary editing
-  // usually ends here with nothing to do.
-  const prior = priorWrites(st, scan.guid);
-  const byDrive = new Map();
-  for (const f of scan.files) {
-    const p = prior[f.mediaPath];
-    if (p) summary.onShade++;
-    if (p && !needsWork(p, f.used)) continue;
-
-    let found;
-    try {
-      found = await resolveFile(f.mediaPath);
-    } catch (e) {
-      summary.problems.push(e.message);
-      continue;
-    }
-    // Local media, a volume not proven to be Shade, or not indexed yet.
-    if (!found) { summary.skipped++; continue; }
-    if (!p) summary.onShade++;
-    if (!byDrive.has(found.driveId)) byDrive.set(found.driveId, []);
-    byDrive.get(found.driveId).push({ file: f, asset: found.asset });
-  }
-
-  // Drives this project already has a record on get visited even when no
-  // asset changed. Otherwise a rename, or a .prproj that has just been
-  // indexed, would wait for some unrelated asset to need a write.
-  // (Measured: a renamed project kept its old record name.)
-  for (const key of Object.keys(st.written)) {
-    if (!key.endsWith(":" + scan.guid)) continue;
-    const driveId = key.slice(0, key.length - scan.guid.length - 1);
-    if (!byDrive.has(driveId)) byDrive.set(driveId, []);
-  }
-
-  for (const [driveId, entries] of byDrive) {
-    let schema;
-    try {
-      schema = await schemaFor(driveId);
-    } catch (e) {
-      summary.problems.push(e.message);
-      summary.pending += entries.length;
-      continue;
-    }
-
-    const project = await projectRecord(driveId, schema, scan);
-    const recordId = project.id;
-    if (project.file === "waiting") summary.projectFileWaiting = true;
-    const key = driveId + ":" + scan.guid;
-    const written = st.written[key] || (st.written[key] = {});
-
-    const updates = [];
-    const settled = [];
-    for (const { file, asset } of entries) {
-      const values = planAsset(asset.custom_metadata, schema.fields, recordId, file.used);
-      if (values) updates.push({ asset_id: asset.id, metadata_attributes: values, file, asset });
-      else settled.push({ file, asset });
-    }
-
-    for (let i = 0; i < updates.length; i += WRITE_BATCH) {
-      const batch = updates.slice(i, i + WRITE_BATCH);
-      await shade.putAssetValues(driveId, batch.map(({ asset_id, metadata_attributes }) =>
-        ({ asset_id, metadata_attributes })));
-      for (const u of batch) {
-        settled.push({ file: u.file, asset: u.asset });
-        // Say WHICH field each write fixed. A write on an asset that "should"
-        // already be right is otherwise impossible to explain afterwards.
-        for (const v of u.metadata_attributes) {
-          const what = v.id === schema.fields.imported ? "imported"
-            : v.id === schema.fields.used ? "used" : "linked";
-          summary.changes[what]++;
-        }
-      }
-      summary.written += batch.length;
-    }
-
-    for (const { file, asset } of settled) {
-      written[file.mediaPath] = { used: !!file.used, assetId: asset.id };
-    }
-    await store.save();
-
-    await writeProjectMedia(driveId, schema, project.fileAsset, written, scan);
-  }
-
+  const byDrive = await resolveFiles(scan, summary);
+  for (const [driveId, entries] of byDrive) await syncDrive(driveId, entries, scan, summary);
   return summary;
 }
 
@@ -387,7 +366,11 @@ function describeChanges(summary) {
   return ` (${parts.join(", ")})`;
 }
 
-/* A new API key may see different drives with different schemas. */
-function forgetSchemas() { schemas.clear(); }
+/* A new API key sees different drives, records and schemas. */
+function forget() {
+  schemas.clear();
+  records.clear();
+  written.clear();
+}
 
-module.exports = { run, forgetSchemas, describeChanges, MissingSchema };
+module.exports = { run, forget, describeChanges, FIELD, COLUMN };

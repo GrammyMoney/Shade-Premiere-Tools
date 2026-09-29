@@ -56,10 +56,6 @@ test("needsWork: new, newly used, or nothing", () => {
   assert.strictEqual(needsWork({ used: true, assetId: "a" }, false), false);
 });
 
-test("needsWork: an entry without an asset id is resolved once more", () => {
-  assert.strictEqual(needsWork({ used: true }, false), true);
-});
-
 test("project media: a fresh .prproj (every save is one) gets the whole list", () => {
   assert.deepStrictEqual(planProjectMedia(undefined, ["a", "b", "a"]),
     [{ id: "a", type: "asset" }, { id: "b", type: "asset" }]);

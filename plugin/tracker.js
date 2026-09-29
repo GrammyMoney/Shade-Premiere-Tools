@@ -32,13 +32,14 @@ const SETTLE_MS = 400;
 const IMPORT_FOLLOWUP_MS = 2500;
 
 /*
- * A .prproj on a Shade drive is indexed by Shade seconds after it is saved
- * (measured: 3s and 18s after the pass that looked for it), and without an
- * edit there would be no later pass to link it. So retry on our own, a few
- * times, then give up until the next event.
+ * Shade indexes a file seconds after it lands on the drive (a saved .prproj
+ * took 3s and 18s, measured), and without an edit there would be no later
+ * pass to catch it. So when a pass says Shade has not caught up yet -- a
+ * clip or the .prproj not indexed, a volume not proven -- look again on our
+ * own, a few times, then wait for the next event.
  */
-const PROJECT_FILE_RETRY_MS = 20000;
-const PROJECT_FILE_RETRIES = 6;
+const RETRY_MS = 20000;
+const RETRIES = 6;
 
 let ppro = null;
 let onProjectSeen = null;
@@ -47,11 +48,11 @@ let timer = null;
 let running = false;
 let rerun = null;
 let followTimer = null;      // one-off follow-ups; separate from the debounce
-let fileRetries = 0;
+let retries = 0;
 let lastGuid = null;
-let lastNotTracked = null;
+let lastStatus = null;
 
-const NOT_TRACKED = {
+const NOT_TRACKED = {   // summary.status -> why this project is skipped
   unsaved: "not saved yet -- save it to a Shade drive to track it",
   local: "the project file is not on a Shade drive",
   waiting: "its drive is not recognised as Shade yet"
@@ -108,7 +109,7 @@ async function run(reason) {
     const scan = await scanProject(ppro, project);
     if (!scan || !scan.guid) { log("scan produced nothing usable"); return; }
     state.project = scan.name;
-    if (scan.guid !== lastGuid) { lastGuid = scan.guid; fileRetries = 0; }
+    if (scan.guid !== lastGuid) { lastGuid = scan.guid; retries = 0; }
     if (onProjectSeen) {
       try { onProjectSeen(scan.guid); } catch (e) { /* never break a run */ }
     }
@@ -120,28 +121,28 @@ async function run(reason) {
     state.lastError = summary.problems.length ? summary.problems[0] : null;
     state.runs++;
 
-    if (summary.projectFileWaiting && fileRetries < PROJECT_FILE_RETRIES) {
-      fileRetries++;
-      followUp("project_file", PROJECT_FILE_RETRY_MS);
-    } else if (!summary.projectFileWaiting) {
-      fileRetries = 0;
+    if (summary.retry && retries < RETRIES) {
+      retries++;
+      followUp("retry", RETRY_MS);
+    } else if (!summary.retry) {
+      retries = 0;
     }
 
-    if (summary.notTracked) {
+    if (summary.status !== "tracked") {
       // Logged once per project and reason, not on every DIRTY.
-      const note = scan.guid + ":" + summary.notTracked;
-      if (note !== lastNotTracked) {
-        lastNotTracked = note;
-        log(`not tracking "${scan.name}": ${NOT_TRACKED[summary.notTracked]}`);
+      const note = scan.guid + ":" + summary.status;
+      if (note !== lastStatus) {
+        lastStatus = note;
+        log(`not tracking "${scan.name}": ${NOT_TRACKED[summary.status]}`);
       }
       return;
     }
-    lastNotTracked = null;
+    lastStatus = null;
 
     log(`sync (${reason}) "${scan.name}": ${scan.timing.files} files, ` +
         `${summary.onShade} on Shade, ${summary.written} written` + sync.describeChanges(summary) + ", " +
         `${summary.skipped} not on Shade, walk ${scan.timing.ms}ms` +
-        (summary.projectFileWaiting ? `, project file not indexed yet (retry ${fileRetries}/${PROJECT_FILE_RETRIES})` : "") +
+        (summary.retry ? `, Shade not caught up yet (retry ${retries}/${RETRIES})` : "") +
         (summary.problems.length ? ` -- ${summary.problems.join("; ")}` : ""));
   } catch (e) {
     // A failed pass loses nothing: the next DIRTY scans the whole project

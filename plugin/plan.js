@@ -68,8 +68,8 @@ function planAsset(custom, fields, projectRecordId, usedHere) {
 }
 
 /*
- * What we already told Shade about an asset for this project, so an
- * unchanged asset costs no request at all.
+ * What this session already told Shade about an asset for this project, so
+ * an unchanged asset costs no request at all.
  *
  * `used` is recorded because it is the one thing that can change later: an
  * asset imported first and cut in afterwards needs a second write. Once
@@ -77,9 +77,6 @@ function planAsset(custom, fields, projectRecordId, usedHere) {
  */
 function needsWork(previous, usedHere) {
   if (!previous) return true;
-  // Written before asset ids were remembered: resolve once to learn it.
-  // Nothing is re-written if Shade is already right.
-  if (!previous.assetId) return true;
   if (usedHere && !previous.used) return true;
   return false;
 }

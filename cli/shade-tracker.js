@@ -69,7 +69,7 @@ setPlatform({
 
 const { log, flush } = require(path.join(ROOT, "plugin/log.js"));
 const shade = require(path.join(ROOT, "plugin/shade.js"));
-const store = require(path.join(ROOT, "plugin/store.js"));
+const resolve = require(path.join(ROOT, "plugin/resolve.js"));
 const sync = require(path.join(ROOT, "plugin/sync.js"));
 const { mountRootFor } = require(path.join(ROOT, "plugin/paths.js"));
 const { parseBytes } = require("./prproj.js");
@@ -171,9 +171,8 @@ async function runDrive(drive, cliState, { full }) {
   // The .prproj files themselves prove the drive: they were listed from it.
   // Media paths in a project are the editor's /Volumes/<drive name>/..., so
   // that is the volume every path on this drive will be written under.
-  const st = await store.load();
   const root = mountRootFor(drive.name);
-  if (!st.volumes[root]) { st.volumes[root] = { driveId: drive.id, name: drive.name }; await store.save(); }
+  resolve.rememberVolume(root, drive.id, drive.name);
 
   const parsed = [];
   let failed = 0;
@@ -200,7 +199,8 @@ async function runDrive(drive, cliState, { full }) {
       written += s.written;
       log(`${drive.name}${rel}: ${scan.files.length} files, ${s.onShade} on Shade, ` +
           `${s.written} written` + sync.describeChanges(s) + (group.copies > 1 ? `, ${group.copies} copies merged` : "") +
-          (s.notTracked ? `, not tracked (${s.notTracked})` : "") +
+          (s.status !== "tracked" ? `, not tracked (${s.status})` : "") +
+          (s.retry ? ", Shade not caught up yet" : "") +
           (s.problems.length ? ` -- ${s.problems.join("; ")}` : ""));
       for (const p of parsed) if (p.project.guid === group.guid) ds.seen[p.entry.id] = p.entry.updated;
     } catch (e) {

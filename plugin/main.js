@@ -13,12 +13,11 @@
  * Requires are guarded and reported. A require that throws at module scope
  * aborts the file silently: no log, no panel, nothing to debug against.
  */
-let log, attach, recent, dataFolderPath, shade, store, resolve, sync, tracker, uxp, entrypoints;
+let log, attach, recent, dataFolderPath, shade, resolve, sync, tracker, uxp, entrypoints;
 let loadError = null;
 try {
   ({ log, attach, recent, dataFolderPath } = require("./log.js"));
   shade = require("./shade.js");
-  store = require("./store.js");
   resolve = require("./resolve.js");
   sync = require("./sync.js");
   tracker = require("./tracker.js");
@@ -61,8 +60,8 @@ async function setKey(value) {
   if (!/^sk_\S+$/.test(key)) throw new Error("that does not look like a Shade key (sk_...)");
   await uxp.storage.secureStorage.setItem(KEY_ITEM, key);
   cachedKey = key;
-  resolve.forgetDrives();
-  sync.forgetSchemas();
+  resolve.forget();
+  sync.forget();
 }
 
 /* ----------------------------------------------------------------- events */
@@ -139,7 +138,6 @@ async function boot() {
   if (!ppro) return;
 
   shade.setKeyProvider(getKey);
-  await store.load();
 
   // Every run reports which project it saw, so a switch that arrived without
   // an OPENED event still moves DIRTY to the right project.
@@ -198,7 +196,7 @@ function wirePanel() {
 
     // Not tracking a local project is correct behaviour, not a fault: the
     // lamp stays green and the reason is shown in place of "tracking".
-    const skip = st.lastSummary && st.lastSummary.notTracked;
+    const skip = st.lastSummary && st.lastSummary.status !== "tracked" && st.lastSummary.status;
     lamp.className = "lamp " + (bad ? "bad" : "ok");
     set("state", bad || (st.running ? "syncing…" : skip ? "not tracking" : "tracking"),
         "state" + (bad ? " bad" : ""));
