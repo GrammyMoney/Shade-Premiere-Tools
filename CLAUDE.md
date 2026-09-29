@@ -141,7 +141,7 @@ nothing that can disagree with itself.
     volume is enough. On an unproven volume, the project file or any clip on
     that same volume can prove it.
   - A volume that can't be proven is retried like a missing project file
-    (every 20s, up to 6 times). The panel shows "not tracking" with the
+    (the same retry as anything else Shade hasn't caught up with). The panel shows "not tracking" with the
     reason, and the lamp stays green, because this is correct behaviour,
     not a fault.
   - Moving a project onto Shade later makes it tracked from its next pass,
@@ -158,11 +158,10 @@ nothing that can disagree with itself.
     includes Project Media. So Project Media is checked on **every** pass,
     not just when an asset changes, and rewritten in full when missing.
   - The CLI repairs this naturally (a save makes the file "changed"). The
-    panel repairs it on the next edit, or through the project-file retry.
+    panel repairs it on the next edit, or through the retry.
     There is no save event in UXP.
-- **Project Media lists every Shade asset the project has held on that
-  drive**, from the append-only `written` map, and is merged into whatever
-  is there. So it over-reports, like everything else. It's written only if
+- **Project Media lists the Shade assets this session has seen in the
+  project on that drive**, merged into whatever is there. So it over-reports, like everything else. It's written only if
   the drive has the field.
 - **Never unset.** Neither boolean is cleared, and no project is removed from
   `Projects Used In`, when a clip is deleted from a bin or timeline. Wrongly
@@ -227,9 +226,32 @@ nothing that can disagree with itself.
   touched. Otherwise a rename, or a `.prproj` that has just been indexed,
   waits for some unrelated asset to change. That shipped once and was caught
   by the harness: a renamed project kept its old record name.
-- **Missing fields are reported, not created.** Adding columns to someone's
-  drive is a person's decision, and a mistyped name in code would quietly
-  create a second set. The panel names exactly which field is missing.
+- **The panel and sync never create fields; `shade-tracker setup` does.**
+  (Setup added 2026-09-29.) Adding columns to someone's drive is a person's
+  decision, and a mistyped name in sync code would quietly create a second
+  set. So sync reports what's missing and points at setup, and setup is the
+  one place that creates: idempotent, creates only what's absent, never
+  modifies or removes, reports a same-named field of the wrong type as a
+  conflict. `--check` makes it the health check (exit 1 if not ready).
+  It exists mainly for one trap: `Projects Used In` must be two-way, and
+  Shade only allows that at creation. Setup always creates it two-way; an
+  existing one-way field is reported with a pointer to the migration, not
+  migrated silently.
+- **Nothing is saved between sessions.** (Decided 2026-09-29, replacing a
+  `state.json` of volumes, record ids and what had been written.) All of it
+  lives for one Premiere launch or one CLI run. The saved "already written"
+  map was a bug source: a link someone removed by hand in Shade was never
+  put back, because the file said it was done. Now the first pass of each
+  session re-checks every asset once (~1 lookup per Shade clip), re-proves
+  each volume with one file, and re-finds records by GUID. The CLI keeps only
+  its listing cut-off (`cli.json`), which is about which files to read, not
+  about what Shade holds.
+- **One retry signal.** A pass sets `summary.retry` whenever Shade hasn't
+  caught up: a clip or the `.prproj` on a Shade drive but not indexed yet,
+  or a volume not yet proven. The panel then looks again every 20s, up to 6
+  times. `resolveFile` returns *why* it found nothing (`local`, `unknown`,
+  `missing`, `found`), and only `missing` on a known drive means "wait".
+  Before this, a clip just copied onto the drive waited for the next edit.
 - **Field ids are re-read every 10 minutes**, not once per session. A panel
   runs for days, and a field replaced under it (as `Projects Used In` was)
   would otherwise keep receiving writes to the archived copy.
@@ -261,9 +283,8 @@ Shade:
   read both, found both records, and wrote **0 assets**.
 - **Same "Shade projects only" rule.** The CLI only ever sees `.prproj`
   files listed from a Shade drive.
-- **Separate local state.** The panel's `state.json` is in UXP's plugin
-  storage; the CLI's is in `~/Library/Application Support/Shade Tracker CLI/`.
-  Neither reads the other's. Both check Shade before writing.
+- **No shared local state.** Neither keeps anything between sessions
+  except the CLI's listing cut-off. Both check Shade before writing.
 - **The one real race** is the relation read-merge-write (see Decisions): the
   panel and the CLI writing the same asset in the same instant can drop a
   link. The next pass by either restores it.
@@ -530,7 +551,8 @@ tools/harness.js       runs the plugin's sync under Node against REAL Shade,
                        GUID, clean up afterwards.
 .env                   SHADE_API_KEY=sk_... for the harness. Git-ignored.
 cli/                   the parser, for editors without the panel. Node >= 20, no deps.
-  shade-tracker.js     run / key / install / uninstall / status
+  shade-tracker.js     setup / run / key / install / uninstall / status
+  setup.js             create what a drive lacks, or report it (--check)
   prproj.js            .prproj -> { guid, files }. Pure, tested.
   select.js            which files are projects; merging same-id copies. Pure, tested.
   test/                node --test
@@ -540,12 +562,11 @@ plugin/                the UXP plugin. Manifest v5, flat, no build step.
   main.js              entry: event wiring, API key, panel
   tracker.js           debounce -> scan -> sync
   scan.js              project walk; collapse() is pure and tested
-  sync.js              schema lookup, Projects record, asset writes
+  sync.js              projectHome -> resolveFiles -> syncDrive; session memory
   plan.js              what to write to one asset. Pure, tested. The rules.
   resolve.js           media path -> Shade asset; proving a volume is a drive
   paths.js             /Volumes/<X>/<rest> <-> /<driveId><rest>. Pure, tested.
   shade.js             REST client: auth header, retries, every route used
-  store.js             state.json in the data folder: volumes, records, writes
   log.js               queued log file (from premiere-events)
   test/                node --test
 ```

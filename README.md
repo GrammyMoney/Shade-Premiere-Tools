@@ -13,11 +13,14 @@ Only media on a mounted Shade drive (`/Volumes/<drive name>/...`) is tracked.
 
 ## Setup
 
-1. The drive needs these fields (they exist on Adobe Sandbox already):
-   asset fields `Imported?` (yes/no), `Used?` (yes/no), `Projects Used In`
-   (relation to a custom object), and that custom object needs a
-   `Project GUID` text column and optionally a `Project File` relation to
-   assets. The panel says exactly what's missing.
+1. Prepare the drive (once per drive; safe to re-run):
+   ```
+   node cli/shade-tracker.js key                            # API key -> Keychain
+   node cli/shade-tracker.js setup --drive "Drive Name"     # add --check to only report
+   ```
+   It creates the **Projects** object (`Project GUID`, `Project File`) and
+   the asset fields `Imported?`, `Used?`, `Project Media`, and a two-way
+   `Projects Used In` that gives Projects an **Assets** column.
 2. In the UXP Developer Tool: **Add Plugin** → `plugin/manifest.json` →
    **Load**.
 3. In Premiere: **Window → UXP Plugins → Shade Tracker**, paste your API key
@@ -31,14 +34,14 @@ sync code, so the two never duplicate or undo each other: the panel is live,
 the CLI catches up on the last save.
 
 ```
-node cli/shade-tracker.js key                                  # once: API key -> Keychain
 node cli/shade-tracker.js run --drive "Adobe Sandbox"          # one pass
 node cli/shade-tracker.js install --drive "Adobe Sandbox"      # every 15 min (--every N)
 node cli/shade-tracker.js status
 node cli/shade-tracker.js uninstall
 ```
 
-Needs Node 20+; no mount required. Log and state live in
+Needs Node 20+; no mount required. Uses the key stored by `key` above. Its
+log lives in
 `~/Library/Application Support/Shade Tracker CLI/`.
 
 ## Development

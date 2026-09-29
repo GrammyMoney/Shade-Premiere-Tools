@@ -3,6 +3,7 @@
  * Shade Tracker CLI -- the same tracking as the Premiere panel, for editors
  * who don't have it, by reading saved .prproj files on a timer.
  *
+ *   node cli/shade-tracker.js setup --drive "Adobe Sandbox" make a drive ready
  *   node cli/shade-tracker.js run --drive "Adobe Sandbox"   one pass
  *   node cli/shade-tracker.js key                           store the API key
  *   node cli/shade-tracker.js install --drive "..." [--every 15]
@@ -73,6 +74,7 @@ const resolve = require(path.join(ROOT, "plugin/resolve.js"));
 const sync = require(path.join(ROOT, "plugin/sync.js"));
 const { mountRootFor } = require(path.join(ROOT, "plugin/paths.js"));
 const { parseBytes } = require("./prproj.js");
+const { setup } = require("./setup.js");
 const { isProjectFile, relPath, baseName, mergeByGuid } = require("./select.js");
 
 /* --------------------------------------------------------------- the key */
@@ -251,6 +253,23 @@ async function cmdRun(args) {
   }
 }
 
+/* --------------------------------------------------------------- setup */
+
+async function cmdSetup(args) {
+  if (args.drive.length !== 1) throw new Error('setup takes one drive: setup --drive "Drive Name"');
+  const key = getKey();
+  if (!key) throw new Error("no API key: run `shade-tracker key` first, or set SHADE_API_KEY");
+  shade.setKeyProvider(async () => key);
+
+  const [drive] = await findDrives(args.drive);
+  console.log(`${args.check ? "Checking" : "Setting up"} "${drive.name}" (${drive.id})\n`);
+  const { ready, lines } = await setup(drive, { check: args.check });
+  const width = Math.max(...lines.map((l) => l.state.length));
+  for (const l of lines) console.log(`  ${l.state.padEnd(width)}  ${l.what}${l.note ? " -- " + l.note : ""}`);
+  console.log(ready ? "\nReady." : `\nNot ready.${args.check ? " Run without --check to create what is missing." : ""}`);
+  if (!ready) process.exitCode = 1;
+}
+
 /* ------------------------------------------------------------- launchd */
 
 function xml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
@@ -313,18 +332,20 @@ async function cmdStatus() {
 /* ---------------------------------------------------------------- main */
 
 function parseArgs(argv) {
-  const out = { _: [], drive: [], full: false, every: null };
+  const out = { _: [], drive: [], full: false, check: false, every: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--drive") out.drive.push(argv[++i]);
     else if (a === "--every") out.every = argv[++i];
     else if (a === "--full") out.full = true;
+    else if (a === "--check") out.check = true;
     else out._.push(a);
   }
   return out;
 }
 
 const USAGE = `usage: shade-tracker <command>
+  setup --drive NAME|ID [--check]             create the fields a drive needs (or report)
   run --drive NAME|ID [--drive ...] [--full]   one pass over the drive(s)
   key                                         store your API key in the Keychain
   install --drive NAME|ID [--every MIN]       run automatically (default 15 min)
@@ -334,7 +355,8 @@ const USAGE = `usage: shade-tracker <command>
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const cmd = args._[0];
-  if (cmd === "run") await cmdRun(args);
+  if (cmd === "setup") await cmdSetup(args);
+  else if (cmd === "run") await cmdRun(args);
   else if (cmd === "key") cmdKey();
   else if (cmd === "install") cmdInstall(args);
   else if (cmd === "uninstall") cmdUninstall();

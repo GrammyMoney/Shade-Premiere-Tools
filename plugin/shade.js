@@ -150,8 +150,28 @@ const downloadUrl = (driveId, assetId) =>
 /* -------------------------------------------------------------- schema */
 
 const listFields = (driveId) => request("GET", `/workspaces/drives/${driveId}/metadata`);
+const listObjectTypes = (driveId) =>
+  request("GET", `/workspaces/drives/${driveId}/custom-object-types`);
 const getObjectType = (driveId, typeId) =>
   request("GET", `/workspaces/drives/${driveId}/custom-object-types/${typeId}`);
+
+/*
+ * Creating schema. Used only by `shade-tracker setup` -- the panel and the
+ * sync never create fields. Not retried: a create that times out may have
+ * landed, and setup re-checks what exists before trying again.
+ *
+ * A relation is made two-way by `relation_config.inverse`, and ONLY at
+ * creation: PATCH rejects it (422 extra_forbidden).
+ */
+const createObjectType = (driveId, name, description) =>
+  request("POST", `/workspaces/drives/${driveId}/custom-object-types`,
+    { body: { name, description }, retry: false });
+const addObjectColumns = (driveId, typeId, columns) =>
+  request("POST", `/workspaces/drives/${driveId}/metadata/custom-objects/${typeId}/columns`,
+    { body: { columns }, retry: false });
+const addAssetFields = (driveId, columns) =>
+  request("POST", `/workspaces/drives/${driveId}/metadata/assets/columns`,
+    { body: { columns }, retry: false });
 
 /* ------------------------------------------------------------- records */
 
@@ -190,6 +210,6 @@ module.exports = {
   ShadeError, setKeyProvider, request,
   listWorkspaces, listDrives,
   assetByPath, getAsset, putAssetValues, listFilesPage, downloadUrl,
-  listFields, getObjectType,
+  listFields, listObjectTypes, getObjectType, createObjectType, addObjectColumns, addAssetFields,
   listAllRecords, getRecord, createRecord, patchRecord
 };
