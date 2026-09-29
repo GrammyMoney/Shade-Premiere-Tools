@@ -27,12 +27,25 @@ to `https://api.shade.inc` directly, and Shade is the only store.
 
 ## Current state
 
-**Phase: setup.** Repo created 2026-09-29. The Shade schema exists in Adobe
-Sandbox (below). No plugin code yet.
+**Phase: plugin written, not yet loaded in Premiere.** (2026-09-29)
 
-Every Shade call the plugin needs has been confirmed live with an `sk_` key
-(see "Custom-object API"), and mount → drive mapping is solved (see
-"Recognising a Shade drive"). Next: write the plugin.
+| part | state |
+|------|-------|
+| Shade schema | Created in Adobe Sandbox (below). Projects table empty. |
+| `plugin/` | Written. 17 unit tests on the pure parts (`paths`, `plan`, `collapse`). |
+| sync against real Shade | **Verified end to end** with `tools/harness.js`: volume proven, record created, fields and links written, second project appended not replaced, repeat pass writes nothing, rename renames, Project File links. All test data deleted afterwards. |
+| inside Premiere | **Not yet run.** Events, the scan, `secureStorage`, `fetch` and reading file sizes are all unverified inside UXP. |
+
+Next: load `plugin/` in UDT, add the key in the panel, import a clip from
+`/Volumes/Adobe Sandbox`, and watch the panel and Shade.
+
+Things to watch for on first load, in order of likelihood:
+- **Local file sizes.** `resolve.js` tries `require("fs").lstat` and then
+  `getEntryWithUrl(...).getMetadata()`. If both fail, the log says
+  `cannot read local file sizes` and drive matching falls back to path only.
+- **`<input type="password">`** in the panel is unverified in UXP.
+- **`secureStorage.getItem`** is documented to return bytes. It's decoded as
+  ASCII, and a string is also accepted, in case it returns one.
 
 ## The Shade model
 
@@ -142,6 +155,22 @@ nothing that can disagree with itself.
 - **Only write what changed.** Keep what was last written per project in the
   plugin's data folder and diff against it. A scan is cheap (24ms for 129
   items); a Shade write per asset per `DIRTY` would not be.
+- **But always visit the project's record.** A pass where no asset changed
+  must still check the Projects record on every drive the project has
+  touched. Otherwise a rename, or a `.prproj` that has just been indexed,
+  waits for some unrelated asset to change. That shipped once and was caught
+  by the harness: a renamed project kept its old record name.
+- **Missing fields are reported, not created.** Adding columns to someone's
+  drive is a person's decision, and a mistyped name in code would quietly
+  create a second set. The panel names exactly which field is missing.
+- **The Projects object is found through its relation, not by name.**
+  `Projects Used In` names its target type, so renaming "Projects" in
+  Shade's UI doesn't break anything. The field and column names are the
+  contract: `Imported?`, `Used?`, `Projects Used In`, `Project GUID`,
+  `Project File`.
+- **A project spanning two Shade drives gets a record on each.** Custom
+  objects are per drive, and an asset can only link to its own drive's
+  records.
 - **The API key is the user's own and stays in `uxp.storage.secureStorage`.**
   It has every permission its owner has, so it never goes in the repo, a log
   line or a plain file.
@@ -208,8 +237,11 @@ GET    /workspaces/drives/{drive}/relation-targets?object_type=custom_object
   `{kind: "relation", values: [{id, type}]}`, where `type` is `asset`,
   `custom_object`, `individual` or `user`.
 - **Reads come back differently from writes.** A record carries
-  `metadata_values: [{id: <columnId>, ...}]`, and a relation reads back as
-  `[{entity_type, id, name, ...}]`. Convert before writing back.
+  `metadata_values: [...]`. A scalar reads back as
+  `{kind: "scalar", id, value}`. A relation reads back as
+  **`{kind: "reference", id, values: [{entity_type, id, name, ...}]}`**:
+  `reference` on the way out, `relation` on the way in. Convert before
+  writing back.
 - **`sk_` keys work on every custom-object route**, even though the web app
   itself authenticates with a Firebase user token.
 - **Create returns `201` with the full record**, including `id` and the
@@ -337,9 +369,34 @@ Measured on Premiere 26.5.1 / macOS / arm64 unless stated.
 - Usage hidden inside nested sequences, multicam, Dynamic Link, MOGRTs.
 - More than one Shade workspace at once.
 
+## Repo layout
+
+```
+CLAUDE.md              this file
+docs/shade-endpoints.txt   every documented endpoint, extracted from Shade's docs
+tools/harness.js       runs the plugin's sync under Node against REAL Shade,
+                       with uxp stubbed. Writes to real assets: use a test
+                       GUID, clean up afterwards.
+.env                   SHADE_API_KEY=sk_... for the harness. Git-ignored.
+plugin/                the UXP plugin. Manifest v5, flat, no build step.
+  manifest.json        host is an OBJECT; network: https://api.shade.inc
+  main.js              entry: event wiring, API key, panel
+  tracker.js           debounce -> scan -> sync
+  scan.js              project walk; collapse() is pure and tested
+  sync.js              schema lookup, Projects record, asset writes
+  plan.js              what to write to one asset. Pure, tested. The rules.
+  resolve.js           media path -> Shade asset; proving a volume is a drive
+  paths.js             /Volumes/<X>/<rest> <-> /<driveId><rest>. Pure, tested.
+  shade.js             REST client: auth header, retries, every route used
+  store.js             state.json in the data folder: volumes, records, writes
+  log.js               queued log file (from premiere-events)
+  test/                node --test
+```
+
 ## Working conventions
 
 - Repo: `github.com/GrammyMoney/Shade-Tracker` (private), branch `main`.
-- Plain JS, no build step. Node's `--test` for the pure parts (path mapping,
-  collapse, diff); everything else is verified by loading it in Premiere.
+- Plain JS, no build step. `cd plugin && npm test` for the pure parts;
+  `tools/harness.js` for sync against real Shade; everything Premiere-side is
+  verified by loading it.
 - Keep it small. If a feature needs a local service, it belongs in SHINE.

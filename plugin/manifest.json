@@ -1,0 +1,33 @@
+{
+  "id": "com.grammymoney.shadetracker",
+  "name": "Shade Tracker",
+  "version": "0.1.0",
+  "main": "index.html",
+  "manifestVersion": 5,
+  "host": {
+    "app": "premierepro",
+    "minVersion": "25.6.0"
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "shadeTrackerPanel",
+      "label": {
+        "default": "Shade Tracker"
+      },
+      "minimumSize": { "width": 240, "height": 220 },
+      "maximumSize": { "width": 2400, "height": 2400 },
+      "preferredDockedSize": { "width": 320, "height": 380 },
+      "preferredFloatingSize": { "width": 380, "height": 440 }
+    }
+  ],
+  "requiredPermissions": {
+    "network": {
+      "domains": [
+        "https://api.shade.inc"
+      ]
+    },
+    "localFileSystem": "fullAccess",
+    "allowCodeGenerationFromStrings": false
+  }
+}
