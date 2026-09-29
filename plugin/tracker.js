@@ -49,6 +49,13 @@ let rerun = null;
 let followTimer = null;      // one-off follow-ups; separate from the debounce
 let fileRetries = 0;
 let lastGuid = null;
+let lastNotTracked = null;
+
+const NOT_TRACKED = {
+  unsaved: "not saved yet -- save it to a Shade drive to track it",
+  local: "the project file is not on a Shade drive",
+  waiting: "its drive is not recognised as Shade yet"
+};
 
 const state = {
   lastRunAt: null, lastScan: null, lastSummary: null, lastError: null,
@@ -120,6 +127,17 @@ async function run(reason) {
       fileRetries = 0;
     }
 
+    if (summary.notTracked) {
+      // Logged once per project and reason, not on every DIRTY.
+      const note = scan.guid + ":" + summary.notTracked;
+      if (note !== lastNotTracked) {
+        lastNotTracked = note;
+        log(`not tracking "${scan.name}": ${NOT_TRACKED[summary.notTracked]}`);
+      }
+      return;
+    }
+    lastNotTracked = null;
+
     log(`sync (${reason}) "${scan.name}": ${scan.timing.files} files, ` +
         `${summary.onShade} on Shade, ${summary.written} written, ` +
         `${summary.skipped} not on Shade, walk ${scan.timing.ms}ms` +
@@ -140,4 +158,6 @@ function status() {
   return { ...state, pending: !!timer, running };
 }
 
-module.exports = { init, request, requestNow, afterImport, status };
+const notTrackedText = (reason) => NOT_TRACKED[reason] || null;
+
+module.exports = { init, request, requestNow, afterImport, status, notTrackedText };

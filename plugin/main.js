@@ -161,6 +161,7 @@ async function boot() {
 
 let wired = false;
 let renderTimer = null;
+let shownWhy = null;         // the not-tracking reason currently in the note
 
 function wirePanel() {
   if (wired) return;
@@ -195,8 +196,22 @@ function wirePanel() {
     else if (!key) bad = "add your Shade API key";
     else if (st.lastError) bad = st.lastError;
 
+    // Not tracking a local project is correct behaviour, not a fault: the
+    // lamp stays green and the reason is shown in place of "tracking".
+    const skip = st.lastSummary && st.lastSummary.notTracked;
     lamp.className = "lamp " + (bad ? "bad" : "ok");
-    set("state", bad || (st.running ? "syncing…" : "tracking"), "state" + (bad ? " bad" : ""));
+    set("state", bad || (st.running ? "syncing…" : skip ? "not tracking" : "tracking"),
+        "state" + (bad ? " bad" : ""));
+    // Shown in the note line, but never over a message from a button.
+    const noteEl = $("note");
+    const why = !bad && skip ? tracker.notTrackedText(skip) : null;
+    if (why && (noteEl.textContent === "" || noteEl.textContent === shownWhy)) {
+      note(why);
+      shownWhy = why;
+    } else if (!why && shownWhy && noteEl.textContent === shownWhy) {
+      note("");
+      shownWhy = null;
+    }
 
     const s = st.lastSummary;
     const t = st.lastScan;

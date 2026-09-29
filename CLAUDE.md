@@ -55,11 +55,11 @@ across three projects, and zero-write repeat passes.
   extension. It's now stripped, and existing records are renamed on their
   next pass (verified against the real "New Tracker" record).
 
-**Open question:** "Tracker Test.prproj" has two records with two different
-GUIDs, the second created at 14:57:31, 4s after the file on disk was
-modified. If that was a new project or a Save As under the same name, it's
-correct. If Premiere changes `Project.guid` on a routine save or reopen, the
-identity key is broken and needs rethinking. Find out which.
+**Answered: Save As gives the copy a new `Project.guid`.** "Tracker Test"
+had two records because it was saved locally, then Save As'd onto the Shade
+drive. Both GUIDs were real and distinct, so `Project.guid` stays the
+identity key. The fix is the rule below: a local project is never tracked.
+The stray record for the local original was deleted by hand.
 
 ## The Shade model
 
@@ -111,6 +111,22 @@ nothing that can disagree with itself.
   `Used?` is per asset, not per project. Which of the linked projects
   actually used it is not recorded. That's accepted for now; per-project
   usage would need a second relation field.
+- **Only projects saved on a Shade drive are tracked.** (Decided
+  2026-09-29.) A project whose `.prproj` is on the local disk, or not saved
+  yet, gets no record, and its clips aren't marked at all. A local project
+  isn't shared, so it isn't ours to report. It was also producing a second
+  record every time an editor started locally and then Save As'd onto the
+  drive.
+  - The `.prproj` needn't be indexed yet (Shade takes 3–18s). A proven
+    volume is enough. On an unproven volume, the project file or any clip on
+    that same volume can prove it.
+  - A volume that can't be proven is retried like a missing project file
+    (every 20s, up to 6 times). The panel shows "not tracking" with the
+    reason, and the lamp stays green, because this is correct behaviour,
+    not a fault.
+  - Moving a project onto Shade later makes it tracked from its next pass,
+    under its new GUID. Nothing carries over from the local copy, and
+    nothing needs to.
 - **Never unset.** Neither boolean is cleared, and no project is removed from
   `Projects Used In`, when a clip is deleted from a bin or timeline. Wrongly
   calling an asset unused is the dangerous mistake for anything archival, and

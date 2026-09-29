@@ -191,17 +191,63 @@ function priorWrites(st, guid) {
 }
 
 /*
+ * Is this project one we track? Only if its .prproj is on a Shade drive.
+ * (Decided 2026-09-29.)
+ *
+ * Why: Save As gives the copy a new Project.guid. An editor who starts a
+ * project locally and then saves it onto the Shade drive produced two
+ * records -- the local original's and the real one -- with every clip linked
+ * to both. A project that is not on Shade is not shared, so it is not ours
+ * to report.
+ *
+ *   unsaved  no path yet: nothing to track until it is saved
+ *   local    .prproj not under /Volumes/, or on a volume that is not Shade
+ *   waiting  on a volume not yet proven to be Shade; retried
+ *   shade    tracked
+ *
+ * The .prproj itself need not be indexed: Shade indexes a new save seconds
+ * later (3-18s measured). A proven volume is enough. On an unproven volume,
+ * the project file or any clip on the same volume can prove it.
+ */
+async function projectHome(scan) {
+  if (!scan.path) return { status: "unsaved" };
+  const v = splitVolume(scan.path);
+  if (!v) return { status: "local" };
+
+  const st = await store.load();
+  if (st.volumes[v.root]) return { status: "shade", driveId: st.volumes[v.root].driveId };
+
+  const witnesses = [scan.path].concat(
+    scan.files.map((f) => f.mediaPath).filter((p) => p.startsWith(v.root + "/")).slice(0, 3));
+  for (const p of witnesses) {
+    const found = await resolveFile(p).catch(() => null);
+    if (found) return { status: "shade", driveId: found.driveId };
+  }
+  return { status: "waiting" };
+}
+
+/*
  * Returns a summary for the panel: how many files were on Shade, how many
  * needed a write, and what could not be done yet.
  */
 async function run(scan) {
   const st = await store.load();
+  // notTracked: why this project is skipped entirely (null when tracked).
   // onShade: files resolved to a Shade asset. written: assets whose values
   // changed this pass. skipped: local, unproven, or not indexed yet.
   // pending: on Shade but blocked, e.g. the drive lacks the fields.
   // projectFileWaiting: the .prproj is on a Shade drive but not indexed yet.
-  const summary = { onShade: 0, written: 0, pending: 0, skipped: 0, problems: [],
-                    projectFileWaiting: false };
+  const summary = { notTracked: null, onShade: 0, written: 0, pending: 0, skipped: 0,
+                    problems: [], projectFileWaiting: false };
+
+  const home = await projectHome(scan);
+  if (home.status !== "shade") {
+    summary.notTracked = home.status;
+    // An unproven volume may just be a drive Shade has not indexed anything
+    // on yet. Retry like a missing project file, then wait for an event.
+    if (home.status === "waiting") summary.projectFileWaiting = true;
+    return summary;
+  }
 
   // Resolve only what needs work. An asset already written, and not newly
   // used, costs no request at all -- a DIRTY during ordinary editing
