@@ -30,8 +30,8 @@ to `https://api.shade.inc` directly, and Shade is the only store.
 **Phase: setup.** Repo created 2026-09-29. The Shade schema exists in Adobe
 Sandbox (below). No plugin code yet.
 
-Blocked on one discovery step, see "Unknowns": the REST endpoints for custom
-objects are not documented.
+The custom-object endpoints have been found in the web app's code (see
+"Custom-object API"). Next: confirm them live with an `sk_` key.
 
 ## The Shade model
 
@@ -73,6 +73,16 @@ nothing that can disagree with itself.
 - **Two booleans, mapped to two different facts.** `Imported?` means the
   asset is in the project's bins. `Used?` means a track item on some sequence
   references it. (Decided 2026-09-29.)
+- **A project is linked when the asset is imported, not when it is used.**
+  (Decided 2026-09-29.) `Projects Used In` means "projects that contain this
+  asset", despite its name. Reading an asset:
+  - `Imported?` checked, `Used?` unchecked: in at least one project, on no
+    timeline.
+  - Both checked: imported, and on a timeline in at least one project.
+
+  `Used?` is per asset, not per project. Which of the linked projects
+  actually used it is not recorded. That's accepted for now; per-project
+  usage would need a second relation field.
 - **Never unset.** Neither boolean is cleared, and no project is removed from
   `Projects Used In`, when a clip is deleted from a bin or timeline. Wrongly
   calling an asset unused is the dangerous mistake for anything archival, and
@@ -129,19 +139,58 @@ URL for markdown. `?ask=<question>` on a docs URL queries their search.
 - The official SDK is Python only and hasn't been updated since February
   2025. It doesn't cover custom objects.
 
+## Custom-object API (undocumented)
+
+**Read out of the Shade web app's own JavaScript** (`app.shade.inc`,
+`main-*.js`, 2026-09-29), because none of it is in Shade's docs. It's the
+same API the app uses, so it's real. But it's unpublished and can change
+without notice. Treat every shape here as **seen in the bundle, not yet
+confirmed with an `sk_` key**, until the live check below is done.
+
+```
+GET    /workspaces/drives/{drive}/custom-object-types                  list types
+GET    /workspaces/drives/{drive}/custom-object-types/{type}            one type + columns
+PATCH  /workspaces/drives/{drive}/custom-object-types/{type}            edit type
+GET    /workspaces/drives/{drive}/custom-object-types/{type}/records    list records
+POST   /workspaces/drives/{drive}/custom-object-types/{type}/records    create
+         body {name, metadata: {<columnId>: <tagged value>}}
+GET    /workspaces/drives/{drive}/custom-object-types/{type}/records/{id}
+PATCH  /workspaces/drives/{drive}/custom-object-types/{type}/records/{id}
+         body {name} or {metadata: {...}}
+GET    /workspaces/drives/{drive}/custom-object-types/records/{id}      by id alone
+GET    /workspaces/drives/{drive}/relation-targets?object_type=custom_object
+         &target_database_id=&query=&limit=                             picker search
+       /workspaces/drives/{drive}/metadata/custom-objects/{type}/columns[/{col}]
+       /workspaces/drives/{drive}/metadata/assets/columns[/{col}]
+```
+
+- **Record metadata is keyed by column ID and every value is tagged:**
+  `{kind: "scalar", value: ...}` or
+  `{kind: "relation", values: [{id, type}]}`, where `type` is `asset`,
+  `custom_object`, `individual` or `user`.
+- **Reads come back differently from writes.** A record carries
+  `metadata_values: [{id: <columnId>, ...}]`, and a relation reads back as
+  `[{entity_type, id, name, ...}]`. Convert before writing back.
+- **Asset values are written in bulk:**
+  `PUT /assets/metadata/values` with
+  `{drive_id, asset_ids: [...], metadata_attributes: [{id, value, append}]}`.
+  **`append: true` exists.** If it works for relation fields, Shade appends a
+  project on its side, and the read-merge-write race described in Decisions
+  goes away. The other form,
+  `{drive_id, asset_ids_with_metadata_attributes: [{asset_id,
+  metadata_attributes: [{id, value}]}]}`, is per asset and has no append.
+- The web app sends a Firebase user token, not an `sk_` key. **Whether these
+  routes accept an `sk_` key is not yet known.** It's the first thing to test.
+- There's no "find record by column value" route in the bundle. Finding a
+  Project by GUID means listing the type's records and matching locally.
+  Cache the GUID → record ID map in the plugin's data folder.
+
 ## Unknowns, to settle before writing code
 
-1. **Custom-object REST endpoints.** Not documented anywhere. Confirmed by
-   Shade's docs search, and absent from the published
-   `@shade-inc/mcp-server@0.1.2`. The hosted MCP clearly has them
-   (`list_types`, `upsert_records`, `search_references`), so they exist.
-   Plan: watch the Shade web app's network requests while creating a Projects
-   record and setting a relation value, then record the calls here.
-   Fallback: a text `Projects Used In`, which the documented metadata
-   endpoint already covers.
-2. **What shape a relation value takes over REST.** The MCP accepts
-   `[{id, type}]` or bare UUIDs. Confirm what
-   `PUT /assets/{id}/metadata/{attr}/value` wants.
+1. ~~Custom-object REST endpoints.~~ Found; see above. Confirm them live with
+   an `sk_` key.
+2. **Relation value shape on an asset**, and whether `append: true` works for
+   relations. Test against one asset with `PUT /assets/metadata/values`.
 3. **Mount → drive ID.** Shade mounts drives over SMB from localhost:
    `//GUEST:@shadefs:<port>/<Name>` on `/Volumes/<Name>` (seen:
    `Alex B Sandbox`). UXP can't run `mount`, so the plugin can't discover
@@ -149,9 +198,8 @@ URL for markdown. `?ask=<question>` on a docs URL queries their search.
    user confirms which `/Volumes/` folder each one is. Verify first whether
    the mount name always equals the drive's display name. If it does, this
    can be automatic.
-4. **Does `Projects Used In` link on import, or only on use?** With a
-   separate `Imported?`, the name suggests use. But a project that only
-   imported an asset would then have no link to it at all.
+4. ~~Does `Projects Used In` link on import, or only on use?~~ **Decided
+   2026-09-29: on import.** See Decisions.
 
 ## Gotchas already paid for (from premiere-events)
 
