@@ -31,8 +31,8 @@ to `https://api.shade.inc` directly, and Shade is the only store.
 Sandbox (below). No plugin code yet.
 
 Every Shade call the plugin needs has been confirmed live with an `sk_` key
-(see "Custom-object API"). The one open design question is mapping a
-`/Volumes/` mount to a drive ID. After that, write the plugin.
+(see "Custom-object API"), and mount → drive mapping is solved (see
+"Recognising a Shade drive"). Next: write the plugin.
 
 ## The Shade model
 
@@ -102,6 +102,38 @@ nothing that can disagree with itself.
   looked up with `GET /assets/path?path=&drive_id=`. Anything outside a Shade mount
   is not ours and is skipped silently: most projects mix Shade media with
   local media, and that is not an error.
+- **Recognising a Shade drive: prove it with a file, then trust the whole
+  volume.** (Decided 2026-09-29.) UXP can't run `mount`, so the plugin can't
+  see that a volume is `smbfs` from host `shadefs`. Instead:
+  1. For a clip at `/Volumes/<X>/<rest>`, the candidates are every drive the
+     key can see whose name is exactly `<X>`. Shade mounts a drive under its
+     display name: `Adobe Sandbox` → `/Volumes/Adobe Sandbox`.
+  2. For each candidate, `GET /assets/path` with `/<driveId><rest>`. It's a
+     match only if the asset exists **and** its `size_bytes` equals the local
+     file's size.
+  3. On the first match, record `/Volumes/<X>` → `driveId` and resolve every
+     other path under it directly, with no more probing.
+
+  Why each part:
+  - **Names aren't unique.** 47 drives were visible to one key, and two were
+    both called `Joe Test`. A name gives candidates; the file decides.
+  - **The size check** stops a same-named file on a same-named drive from
+    claiming the volume. Measured: 44,219,305 bytes locally and in Shade.
+  - **A 404 proves nothing on its own.** The file may simply not be indexed
+    yet. So a volume with no match stays *unknown* and is probed again for
+    the next clip. It is never cached as "not Shade".
+  - **A mounted drive the key can't see never matches.** Seen: `Alex B
+    Sandbox` was mounted, but belongs to a workspace this account can't see.
+    Correct result, because we couldn't write to it anyway.
+  - Anything outside `/Volumes/` (e.g. `/Users/...`) is local, and skipped
+    without asking Shade.
+
+  Filesystem markers were considered and rejected. A Shade mount's root
+  shows `.trash/`, a zero-byte `.fseventsd` *file* and
+  epoch-dated (1969) `.VolumeIcon.icns`. All distinctive, none documented,
+  and any Shade release could change them. Drives also have
+  `settings.mount_path_macos` (and `_linux`, `_windows`), but they're `null`
+  on Adobe Sandbox, so they can't be relied on.
 - **Relations are read-merge-write, which can lose an append.** Setting a
   relation value replaces it. Two editors adding the same asset to two
   projects at the same moment can each overwrite the other. Acceptable for
@@ -219,15 +251,8 @@ GET    /workspaces/drives/{drive}/relation-targets?object_type=custom_object
    key.
 2. ~~Relation value shape on an asset / does `append` work?~~ `[{id, type}]`,
    and no, it replaces. See "Custom-object API".
-3. **Mount → drive ID.** Shade mounts drives over SMB from localhost:
-   `//GUEST:@shadefs:<port>/<Name>` on `/Volumes/<Name>` (seen:
-   `Alex B Sandbox`). UXP can't run `mount`, so the plugin can't discover
-   this itself. Likely answer: the panel lists drives from the API and the
-   user confirms which `/Volumes/` folder each one is. Verify first whether
-   the mount name always equals the drive's display name. If it does, this
-   can be automatic. Drives also carry `settings.mount_path_macos`,
-   `mount_path_linux` and `mount_path_windows`, all `null` on Adobe Sandbox.
-   If Shade fills these in somewhere, they're the proper answer.
+3. ~~Mount → drive ID.~~ **Solved 2026-09-29 by asking Shade about the
+   files themselves.** See "Recognising a Shade drive" in Decisions.
 4. ~~Does `Projects Used In` link on import, or only on use?~~ **Decided
    2026-09-29: on import.** See Decisions.
 
