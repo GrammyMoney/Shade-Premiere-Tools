@@ -121,6 +121,32 @@ const putAssetValues = (driveId, updates) =>
     body: { drive_id: driveId, asset_ids_with_metadata_attributes: updates }
   });
 
+/*
+ * One page of every file on a drive, newest change first. Used by the CLI to
+ * find .prproj files. The search behind this is semantic -- a query for
+ * "prproj" also returns PNGs -- so callers list and filter on extension
+ * rather than trust a query. `sort: "-updated"` is what makes an
+ * incremental pass possible: stop once past the last run's newest change.
+ */
+const listFilesPage = (driveId, { page, limit }) =>
+  request("POST", "/search/files", {
+    body: {
+      drive_id: driveId,
+      path: "/" + driveId,
+      recursive: true,
+      sort: "-updated",
+      page,
+      limit,
+      return_only_attrs: ["id", "path", "name", "extension", "updated", "size_bytes"]
+    }
+  });
+
+/* A short-lived signed URL for a file's bytes. */
+const downloadUrl = (driveId, assetId) =>
+  request("GET", `/assets/${assetId}/download`, {
+    query: { drive_id: driveId, origin_type: "SOURCE" }
+  });
+
 /* -------------------------------------------------------------- schema */
 
 const listFields = (driveId) => request("GET", `/workspaces/drives/${driveId}/metadata`);
@@ -163,7 +189,7 @@ const patchRecord = (driveId, typeId, recordId, body) =>
 module.exports = {
   ShadeError, setKeyProvider, request,
   listWorkspaces, listDrives,
-  assetByPath, getAsset, putAssetValues,
+  assetByPath, getAsset, putAssetValues, listFilesPage, downloadUrl,
   listFields, getObjectType,
   listAllRecords, getRecord, createRecord, patchRecord
 };

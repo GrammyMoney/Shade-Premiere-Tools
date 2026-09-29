@@ -10,7 +10,7 @@
  * running for a week does not grow without bound.
  */
 
-const uxp = require("uxp");
+const { platform } = require("./platform.js");
 
 const MEMORY_LINES = 400;
 const MAX_FILE_BYTES = 256 * 1024;
@@ -29,6 +29,7 @@ function log(...parts) {
   lines.push(line);
   if (lines.length > MEMORY_LINES) lines.shift();
   try { if (sink) sink(line, lines); } catch (e) { sink = null; }
+  try { platform().echo(line); } catch (e) { /* never break logging */ }
   queueWrite(line);
   return line;
 }
@@ -46,14 +47,7 @@ function queueWrite(line) {
 
 async function writeLine(line) {
   try {
-    const folder = await uxp.storage.localFileSystem.getDataFolder();
-    let existing = "";
-    try {
-      const prior = await folder.getEntry(FILE_NAME);
-      existing = await prior.read();
-    } catch (e) {
-      // First run; no file yet.
-    }
+    const existing = (await platform().readData(FILE_NAME)) || "";
     let next = existing + line + "\n";
     // Keep the tail, not the head: what just happened matters more than what
     // happened on Tuesday.
@@ -62,22 +56,24 @@ async function writeLine(line) {
       const nl = next.indexOf("\n");
       if (nl >= 0) next = next.slice(nl + 1);
     }
-    const file = await folder.createFile(FILE_NAME, { overwrite: true });
-    await file.write(next);
+    await platform().writeData(FILE_NAME, next);
   } catch (e) {
     // Never let logging take the plugin down.
   }
 }
 
 function attach(fn) { sink = fn; if (fn) fn(null, lines); }
+
+/* Resolves once every queued line is on disk. For a CLI about to exit. */
+function flush() { return writeChain; }
 function recent() { return lines.slice(); }
 
 async function dataFolderPath() {
   try {
-    return (await uxp.storage.localFileSystem.getDataFolder()).nativePath;
+    return await platform().dataPath();
   } catch (e) {
     return "(unavailable)";
   }
 }
 
-module.exports = { log, attach, recent, dataFolderPath, FILE_NAME };
+module.exports = { log, attach, recent, dataFolderPath, flush, FILE_NAME };

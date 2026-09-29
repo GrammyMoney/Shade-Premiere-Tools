@@ -14,11 +14,14 @@
  *             nothing. Losing it means every asset is re-read once and, if
  *             already right, left alone.
  *
+ * The panel and the CLI each have their own copy (their own data folders).
+ * They never need to agree: both check Shade before writing.
+ *
  * UXP files have no append mode and two overlapping writes truncate each
  * other, so saves go through a promise chain, like the log.
  */
 
-const uxp = require("uxp");
+const { platform } = require("./platform.js");
 
 const FILE = "state.json";
 let state = null;
@@ -29,27 +32,21 @@ function empty() { return { volumes: {}, projects: {}, written: {} }; }
 async function load() {
   if (state) return state;
   try {
-    const folder = await uxp.storage.localFileSystem.getDataFolder();
-    const entry = await folder.getEntry(FILE);
-    const parsed = JSON.parse(await entry.read());
-    state = Object.assign(empty(), parsed);
+    const text = await platform().readData(FILE);
+    state = Object.assign(empty(), text ? JSON.parse(text) : {});
   } catch (e) {
-    state = empty();       // first run, or an unreadable file: start clean
+    state = empty();       // an unreadable file: start clean
   }
   return state;
 }
 
 function save() {
   const snapshot = JSON.stringify(state);
-  chain = chain.then(async () => {
-    const folder = await uxp.storage.localFileSystem.getDataFolder();
-    const file = await folder.createFile(FILE, { overwrite: true });
-    await file.write(snapshot);
-  }).catch(() => {});
+  chain = chain.then(() => platform().writeData(FILE, snapshot)).catch(() => {});
   return chain;
 }
 
-/* Forget everything we learned. For the panel's reset, and for testing. */
+/* Forget everything we learned. */
 async function reset() {
   state = empty();
   await save();

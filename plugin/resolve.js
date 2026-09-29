@@ -22,6 +22,7 @@ const { log } = require("./log.js");
 const shade = require("./shade.js");
 const store = require("./store.js");
 const { splitVolume, shadePath } = require("./paths.js");
+const { platform } = require("./platform.js");
 
 const DRIVE_LIST_TTL_MS = 10 * 60 * 1000;
 let drives = null;            // [{ id, name }]
@@ -44,31 +45,14 @@ async function allDrives(force) {
   return drives;
 }
 
-/*
- * The local file's size, or null if UXP will not tell us.
- *
- * Two routes, because which one works depends on the UXP version and the
- * manifest's localFileSystem permission. Neither is verified inside Premiere
- * yet -- if both fail, matching falls back to path alone and the log says
- * so once.
- */
+/* The local file's size, or null if this host cannot tell us. */
 async function localSize(path) {
-  try {
-    const fs = require("fs");
-    const st = await fs.lstat(path);
-    if (st && typeof st.size === "number") return st.size;
-  } catch (e) { /* try the next route */ }
-  try {
-    const lfs = require("uxp").storage.localFileSystem;
-    const entry = await lfs.getEntryWithUrl("file:" + path);
-    const md = await entry.getMetadata();
-    if (md && typeof md.size === "number") return md.size;
-  } catch (e) { /* fall through */ }
-  if (!sizeWarned) {
+  const size = await platform().fileSize(path).catch(() => null);
+  if (size === null && !sizeWarned) {
     sizeWarned = true;
     log("cannot read local file sizes; matching drives on path alone");
   }
-  return null;
+  return size;
 }
 
 /*

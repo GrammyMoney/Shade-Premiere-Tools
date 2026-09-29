@@ -25,6 +25,13 @@ are the gotchas below -- every one of them cost a test cycle to learn.
 There is **no local service, no database and no launcher.** The plugin talks
 to `https://api.shade.inc` directly, and Shade is the only store.
 
+**A second way in, for editors without the panel: `cli/`.** (Added
+2026-09-29.) A Node CLI that finds `.prproj` files on a Shade drive through
+the API, parses them, and runs **the panel's own sync code** on the result,
+on a timer (a LaunchAgent). The panel tracks the live project, in real time;
+the CLI tracks the last save, every N minutes. That's the only difference,
+and see "Panel and CLI" for why they can't disagree.
+
 ## Current state
 
 **Phase: plugin written, not yet loaded in Premiere.** (2026-09-29)
@@ -34,6 +41,7 @@ to `https://api.shade.inc` directly, and Shade is the only store.
 | Shade schema | Created in Adobe Sandbox (below). Projects table empty. |
 | `plugin/` | Written. 17 unit tests on the pure parts (`paths`, `plan`, `collapse`). |
 | sync against real Shade | **Verified end to end** with `tools/harness.js`: volume proven, record created, fields and links written, second project appended not replaced, repeat pass writes nothing, rename renames, Project File links. All test data deleted afterwards. |
+| `cli/` | **Working** against Adobe Sandbox. 14 tests (parser, selection). Not yet installed as a LaunchAgent. |
 | inside Premiere | **Working** (first load 2026-09-29, UDT, Premiere 26.5.1). Three projects, three clips from Adobe Sandbox; Shade matched the plugin's state exactly. |
 
 **Verified inside Premiere on first load:** the key panel (`<input
@@ -204,6 +212,79 @@ nothing that can disagree with itself.
 - **The API key is the user's own and stays in `uxp.storage.secureStorage`.**
   It has every permission its owner has, so it never goes in the repo, a log
   line or a plain file.
+
+## Panel and CLI
+
+They don't coordinate, and don't need to. Harmony comes from running **the
+same code** (`plugin/sync.js`, `plan.js`, `resolve.js`) against the same
+Shade:
+
+- **Same identity.** A `.prproj` stores the project id as
+  `<RootProjectItem ObjectUID="...">`, which is exactly what UXP returns as
+  `Project.guid`. Verified on both real projects. Either writer finds the
+  other's record.
+- **Same rules, and they only ever add.** Flags are only raised, links only
+  merged. So whichever arrives second finds Shade already right and writes
+  nothing. Measured: the CLI's first pass over the two panel-tracked projects
+  read both, found both records, and wrote **0 assets**.
+- **Same "Shade projects only" rule.** The CLI only ever sees `.prproj`
+  files listed from a Shade drive.
+- **Separate local state.** The panel's `state.json` is in UXP's plugin
+  storage; the CLI's is in `~/Library/Application Support/Shade Tracker CLI/`.
+  Neither reads the other's. Both check Shade before writing.
+- **The one real race** is the relation read-merge-write (see Decisions): the
+  panel and the CLI writing the same asset in the same instant can drop a
+  link. The next pass by either restores it.
+
+Why share code rather than write a server-side port: two copies of the merge
+rules, the identity key or the drive matching would eventually disagree, and
+that disagreement is exactly the duplicate or erased link this is meant to
+prevent. `plugin/platform.js` is the seam: file I/O, the data folder and file
+sizes are the only host-specific things, and the CLI swaps them for Node's.
+
+### How the CLI finds and reads projects
+
+- **Listing:** `POST /search/files` with `recursive`, `sort: "-updated"`,
+  `return_only_attrs`, paged 200 at a time. Newest change first, so a pass
+  stops at the first file older than the last run's newest change (less a
+  10-minute overlap, since Shade sets `updated` when it indexes). Measured:
+  first pass 1.9s, second pass 83ms with nothing to read.
+- **Search is semantic.** A query for `prproj` returned PNGs and JPGs too. So
+  the CLI lists and filters on `extension`, never trusts a query.
+- **Auto-saves are skipped.** `Adobe Premiere Pro Auto-Save/*.prproj` carries
+  the **same project id** as the real project (verified). Parsing it would
+  rename the record after the auto-save and report an older version's clips.
+- **Several files with one id** (a Finder duplicate) are merged: the newest
+  names the project and is its Project File, and clip usage is OR-ed.
+- **Reading:** `GET /assets/{id}/download?origin_type=SOURCE` returns a signed
+  URL; the bytes are identical to the file on the mount. So the CLI needs **no
+  mount**. Without one, drive matching skips the size check (path only), as
+  designed.
+- **Media paths** in a project are the editor's absolute paths
+  (`/Volumes/<drive>/...`). The drive a `.prproj` was listed from is
+  recorded as `/Volumes/<drive name>`, so its own media resolves without a
+  probe. **Windows editors' paths (`X:\...`) are not resolved yet**; they
+  count as "not on Shade".
+- **The cut-off only advances when a pass fully succeeds**, so a project that
+  failed to download or sync is retried rather than left behind.
+
+### The .prproj format (26.5.1)
+
+Mapped from real files; the details are in the header of `cli/prproj.js`.
+Gzipped XML. Top-level objects at one tab of indent, `ObjectID` (local
+number) or `ObjectUID` (uuid), referenced by `ObjectRef` / `ObjectURef`.
+
+- clip: `ClipProjectItem → MasterClip → VideoClip|AudioClip → *MediaSource →
+  Media → ActualMediaFilePath`
+- sequence: the same chain ending in a `*SequenceSource`, which is skipped
+- proxy: a `Media` with `<IsProxy>true</IsProxy>`, which is skipped. SHINE
+  attaches these, so a project can hold two `Media` per clip.
+- on a timeline: `*ClipTrackItem → SubClip → MasterClip`
+- **`<InUse>` is useless:** false on every clip, including clips plainly on a
+  timeline.
+
+Verified: both real projects parse to exactly what the panel recorded, in
+1–3ms each.
 
 ## Shade API facts
 
@@ -408,7 +489,13 @@ tools/harness.js       runs the plugin's sync under Node against REAL Shade,
                        with uxp stubbed. Writes to real assets: use a test
                        GUID, clean up afterwards.
 .env                   SHADE_API_KEY=sk_... for the harness. Git-ignored.
+cli/                   the parser, for editors without the panel. Node >= 20, no deps.
+  shade-tracker.js     run / key / install / uninstall / status
+  prproj.js            .prproj -> { guid, files }. Pure, tested.
+  select.js            which files are projects; merging same-id copies. Pure, tested.
+  test/                node --test
 plugin/                the UXP plugin. Manifest v5, flat, no build step.
+  platform.js          the seam: UXP by default, swapped for Node by the CLI
   manifest.json        host is an OBJECT; network: https://api.shade.inc
   main.js              entry: event wiring, API key, panel
   tracker.js           debounce -> scan -> sync
