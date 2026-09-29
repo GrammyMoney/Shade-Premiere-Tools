@@ -13,10 +13,18 @@
  */
 const AUTO_SAVE = /\/Adobe Premiere Pro Auto-Save\//i;
 
+/*
+ * Shade's listing includes its own trash: "/<driveId>/.trash/..." (seen
+ * 2026-09-29). A deleted project must not be read -- it would re-create or
+ * rename its record.
+ */
+const TRASH = /\/\.trash\//i;
+
 function isProjectFile(entry) {
   if (!entry || typeof entry.path !== "string") return false;
   if (String(entry.extension || "").toLowerCase() !== "prproj") return false;
   if (AUTO_SAVE.test(entry.path)) return false;
+  if (TRASH.test(entry.path)) return false;
   return true;
 }
 

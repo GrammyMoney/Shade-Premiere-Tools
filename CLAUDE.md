@@ -226,11 +226,22 @@ nothing that can disagree with itself.
   touched. Otherwise a rename, or a `.prproj` that has just been indexed,
   waits for some unrelated asset to change. That shipped once and was caught
   by the harness: a renamed project kept its old record name.
-- **The panel and sync never create fields; `shade-tracker setup` does.**
-  (Setup added 2026-09-29.) Adding columns to someone's drive is a person's
+- **Sync never creates fields; `plugin/setup.js` does, when a person asks.**
+  (Added 2026-09-29.) Adding columns to someone's drive is a person's
   decision, and a mistyped name in sync code would quietly create a second
-  set. So sync reports what's missing and points at setup, and setup is the
-  one place that creates: idempotent, creates only what's absent, never
+  set. Sync reports a drive without the fields in `summary.needsSetup` (not
+  as an error), and setup is the one place that creates. It's reached two
+  ways:
+  - **In the panel, two clicks.** The panel names the drive and offers
+    "set up drive". The first click runs the check and lists exactly what
+    will be added; the second creates it and starts tracking. Not silent,
+    because it adds fields every user of the drive will see, and Shade can
+    only archive a field, never delete one. A 401/403 is explained as "ask a
+    drive owner", not shown as a status code. This is what lets someone who
+    just downloaded the panel start on a fresh drive with no Terminal.
+  - **`shade-tracker setup --drive X`** from the CLI.
+
+  Setup itself is idempotent, creates only what's absent, never
   modifies or removes, reports a same-named field of the wrong type as a
   conflict. `--check` makes it the health check (exit 1 if not ready).
   It exists mainly for one trap: `Projects Used In` must be two-way, and
@@ -304,6 +315,8 @@ sizes are the only host-specific things, and the CLI swaps them for Node's.
   first pass 1.9s, second pass 83ms with nothing to read.
 - **Search is semantic.** A query for `prproj` returned PNGs and JPGs too. So
   the CLI lists and filters on `extension`, never trusts a query.
+- **Shade's trash is skipped.** The listing includes `/<driveId>/.trash/`,
+  and a deleted `.prproj` there would re-create or rename its record.
 - **Auto-saves are skipped.** `Adobe Premiere Pro Auto-Save/*.prproj` carries
   the **same project id** as the real project (verified). Parsing it would
   rename the record after the auto-save and report an older version's clips.
@@ -552,7 +565,6 @@ tools/harness.js       runs the plugin's sync under Node against REAL Shade,
 .env                   SHADE_API_KEY=sk_... for the harness. Git-ignored.
 cli/                   the parser, for editors without the panel. Node >= 20, no deps.
   shade-tracker.js     setup / run / key / install / uninstall / status
-  setup.js             create what a drive lacks, or report it (--check)
   prproj.js            .prproj -> { guid, files }. Pure, tested.
   select.js            which files are projects; merging same-id copies. Pure, tested.
   test/                node --test
@@ -566,6 +578,7 @@ plugin/                the UXP plugin. Manifest v5, flat, no build step.
   plan.js              what to write to one asset. Pure, tested. The rules.
   resolve.js           media path -> Shade asset; proving a volume is a drive
   paths.js             /Volumes/<X>/<rest> <-> /<driveId><rest>. Pure, tested.
+  setup.js             create what a drive lacks, or report it. Panel + CLI.
   shade.js             REST client: auth header, retries, every route used
   log.js               queued log file (from premiere-events)
   test/                node --test

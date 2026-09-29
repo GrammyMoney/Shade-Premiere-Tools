@@ -13,13 +13,14 @@
  * Requires are guarded and reported. A require that throws at module scope
  * aborts the file silently: no log, no panel, nothing to debug against.
  */
-let log, attach, recent, dataFolderPath, shade, resolve, sync, tracker, uxp, entrypoints;
+let log, attach, recent, dataFolderPath, shade, resolve, sync, setupDrive, tracker, uxp, entrypoints;
 let loadError = null;
 try {
   ({ log, attach, recent, dataFolderPath } = require("./log.js"));
   shade = require("./shade.js");
   resolve = require("./resolve.js");
   sync = require("./sync.js");
+  ({ setup: setupDrive } = require("./setup.js"));
   tracker = require("./tracker.js");
   uxp = require("uxp");
   ({ entrypoints } = uxp);
@@ -161,6 +162,18 @@ let wired = false;
 let renderTimer = null;
 let shownWhy = null;         // the not-tracking reason currently in the note
 
+/*
+ * Setting up a drive is two clicks: the first shows exactly what will be
+ * created, the second creates it. Not silent, because it adds fields and an
+ * object every user of that drive will see, and Shade can only archive a
+ * field, never delete one -- a drive set up by mistake stays cluttered.
+ * Setting it up is still one decision away for anyone with the panel, which
+ * is what makes the panel work on a fresh drive without the CLI.
+ */
+let setupPlan = null;        // { driveId, name } once the first click has looked
+let setupBusy = false;       // a check or create is in flight; don't redraw over it
+let setupDoneAtRun = null;   // hide the prompt until a pass after setup has run
+
 function wirePanel() {
   if (wired) return;
   const lamp = document.getElementById("lamp");
@@ -189,9 +202,13 @@ function wirePanel() {
     $("keyrow").style.display = key ? "none" : "flex";
     $("changekey").style.display = key ? "block" : "none";
 
+    const needs = (st.lastSummary && st.lastSummary.needsSetup) || [];
+    renderSetup(needs);
+
     let bad = null;
     if (!ppro) bad = "premierepro unavailable";
     else if (!key) bad = "add your Shade API key";
+    else if (needs.length) bad = "drive needs setup";
     else if (st.lastError) bad = st.lastError;
 
     // Not tracking a local project is correct behaviour, not a fault: the
@@ -228,10 +245,84 @@ function wirePanel() {
     }
   }
 
+  function renderSetup(needs) {
+    const box = $("setup");
+    if (setupBusy) return;
+    if (setupDoneAtRun !== null && tracker.status().runs === setupDoneAtRun) needs = [];
+    if (!needs.length) { box.style.display = "none"; setupPlan = null; return; }
+    box.style.display = "block";
+    const driveId = setupPlan ? setupPlan.driveId : needs[0];
+    const name = resolve.driveName(driveId);
+    if (!setupPlan) {
+      set("setupmsg", `"${name}" isn't set up for tracking yet.`);
+      set("setuplist", "Your clips are on this drive, but it doesn't have the Shade Tracker fields.");
+      set("setupgo", "set up drive");
+      $("setupcancel").style.display = "none";
+    }
+  }
+
   const on = (id, fn) => {
     const el = $(id);
     if (el) el.onclick = () => Promise.resolve().then(fn).catch((e) => note(e.message));
   };
+
+  on("setupgo", async () => {
+    const needs = (tracker.status().lastSummary || {}).needsSetup || [];
+    const driveId = setupPlan ? setupPlan.driveId : needs[0];
+    if (!driveId) return;
+    const drive = { id: driveId, name: resolve.driveName(driveId) };
+    const label = (l) => `${l.what}${l.note ? " (" + l.note + ")" : ""}`;
+
+    setupBusy = true;
+    try {
+      if (!setupPlan) {
+        // First click: look, don't touch.
+        set("setupgo", "checking…");
+        const { lines } = await setupDrive(drive, { check: true });
+        const todo = lines.filter((l) => l.state === "missing");
+        const conflicts = lines.filter((l) => l.state === "CONFLICT");
+        if (conflicts.length) {
+          set("setupmsg", `"${drive.name}" has fields in the way:`);
+          set("setuplist", conflicts.map(label).join(" · ") + ". Rename or remove them in Shade, then sync again.");
+          set("setupgo", "set up drive");
+          return;
+        }
+        setupPlan = { driveId, name: drive.name };
+        set("setupmsg", `Add to "${drive.name}", for everyone on the drive:`);
+        set("setuplist", todo.map(label).join(" · "));
+        set("setupgo", "create fields");
+        $("setupcancel").style.display = "block";
+        return;
+      }
+      // Second click: create.
+      set("setupgo", "creating…");
+      const { ready, lines } = await setupDrive(drive);
+      const made = lines.filter((l) => l.state === "created").length;
+      log(`set up "${drive.name}": ${made} item(s) created` + (ready ? "" : ", NOT ready"));
+      setupPlan = null;
+      setupDoneAtRun = tracker.status().runs;
+      $("setup").style.display = "none";
+      sync.forget();                 // new field ids
+      note(ready ? `"${drive.name}" is set up. Tracking starts now.` : "setup did not finish; see the log");
+      tracker.requestNow("setup");
+    } catch (e) {
+      setupPlan = null;
+      set("setupgo", "set up drive");
+      $("setupcancel").style.display = "none";
+      // Creating fields needs rights on the drive that an editor may not
+      // have. Say who can fix it rather than showing a status code.
+      note(e.status === 403 || e.status === 401
+        ? `Your Shade account can't add fields to "${drive.name}". Ask a drive owner to open this panel and set it up, or run shade-tracker setup.`
+        : `setup failed: ${e.message}`);
+    } finally {
+      setupBusy = false;
+    }
+  });
+
+  on("setupcancel", () => {
+    setupPlan = null;
+    renderSetup((tracker.status().lastSummary || {}).needsSetup || []);
+  });
 
   on("savekey", async () => {
     const input = $("key");

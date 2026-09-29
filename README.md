@@ -13,18 +13,24 @@ Only media on a mounted Shade drive (`/Volumes/<drive name>/...`) is tracked.
 
 ## Setup
 
-1. Prepare the drive (once per drive; safe to re-run):
-   ```
-   node cli/shade-tracker.js key                            # API key -> Keychain
-   node cli/shade-tracker.js setup --drive "Drive Name"     # add --check to only report
-   ```
-   It creates the **Projects** object (`Project GUID`, `Project File`) and
-   the asset fields `Imported?`, `Used?`, `Project Media`, and a two-way
-   `Projects Used In` that gives Projects an **Assets** column.
-2. In the UXP Developer Tool: **Add Plugin** → `plugin/manifest.json` →
+1. In the UXP Developer Tool: **Add Plugin** → `plugin/manifest.json` →
    **Load**.
-3. In Premiere: **Window → UXP Plugins → Shade Tracker**, paste your API key
+2. In Premiere: **Window → UXP Plugins → Shade Tracker**, paste your API key
    (Shade → Settings → My account → API keys), **save**.
+3. Edit as usual. The first time you work with clips from a drive that
+   isn't set up, the panel says so and offers **set up drive**: one click
+   shows what it will add, a second adds it. Needs an account that can add
+   fields to the drive; otherwise a drive owner does it once.
+
+A drive can also be prepared from Terminal (safe to re-run; `--check` only
+reports):
+```
+node cli/shade-tracker.js key
+node cli/shade-tracker.js setup --drive "Drive Name"
+```
+Either way it creates the **Projects** object (`Project GUID`, `Project
+File`) and the asset fields `Imported?`, `Used?`, `Project Media`, and a
+two-way `Projects Used In` that gives Projects an **Assets** column.
 
 ## Without the panel: the CLI
 

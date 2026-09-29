@@ -62,6 +62,16 @@
   .act:hover { border-color: #6a6a66; }
   .act:active { background-color: #181818; }
 
+  /* Shown only when a drive lacks the fields. Amber: needs a decision, not
+     broken. */
+  .setup {
+    border: 1px solid #6b5a2a; border-radius: 6px; padding: 8px;
+    margin-bottom: 12px; background-color: rgba(240, 190, 70, 0.06);
+  }
+  .setup .msg { color: #e8c66a; margin-bottom: 8px; }
+  .setup .list { color: #8a8a86; margin-bottom: 8px; }
+  .setup .act.go { border-color: #8a7433; }
+
   .link { color: #8a8a86; margin-top: 10px; }
   .link:hover { color: #e8e6e1; }
   .note { color: #8a8a86; margin-top: 10px; word-wrap: break-word; }
@@ -78,6 +88,15 @@
 <div class="keyrow" id="keyrow" style="display: none;">
   <input type="password" id="key" placeholder="sk_… API key" />
   <div class="act solo" id="savekey">save</div>
+</div>
+
+<div class="setup" id="setup" style="display: none;">
+  <div class="msg" id="setupmsg"></div>
+  <div class="list" id="setuplist"></div>
+  <div class="actions">
+    <div class="act" id="setupcancel" style="display: none;">cancel</div>
+    <div class="act go" id="setupgo">set up drive</div>
+  </div>
 </div>
 
 <div class="stats">

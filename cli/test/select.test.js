@@ -17,6 +17,10 @@ test("auto-saves never count: they share the real project's id", () => {
   }));
 });
 
+test("projects in Shade's trash never count", () => {
+  assert.ok(!isProjectFile({ path: `/${D}/.trash/Old Cut.prproj`, extension: "prproj" }));
+});
+
 test("relPath strips the drive id prefix", () => {
   assert.strictEqual(relPath(D, `/${D}/Projects/a b.prproj`), "/Projects/a b.prproj");
 });

@@ -74,7 +74,7 @@ const resolve = require(path.join(ROOT, "plugin/resolve.js"));
 const sync = require(path.join(ROOT, "plugin/sync.js"));
 const { mountRootFor } = require(path.join(ROOT, "plugin/paths.js"));
 const { parseBytes } = require("./prproj.js");
-const { setup } = require("./setup.js");
+const { setup } = require(path.join(ROOT, "plugin/setup.js"));
 const { isProjectFile, relPath, baseName, mergeByGuid } = require("./select.js");
 
 /* --------------------------------------------------------------- the key */
@@ -203,6 +203,7 @@ async function runDrive(drive, cliState, { full }) {
           `${s.written} written` + sync.describeChanges(s) + (group.copies > 1 ? `, ${group.copies} copies merged` : "") +
           (s.status !== "tracked" ? `, not tracked (${s.status})` : "") +
           (s.retry ? ", Shade not caught up yet" : "") +
+          (s.needsSetup.length ? ", drive not set up: run shade-tracker setup" : "") +
           (s.problems.length ? ` -- ${s.problems.join("; ")}` : ""));
       for (const p of parsed) if (p.project.guid === group.guid) ds.seen[p.entry.id] = p.entry.updated;
     } catch (e) {

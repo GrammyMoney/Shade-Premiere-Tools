@@ -1,6 +1,8 @@
 /*
  * Make a drive ready for Shade Tracker, or say what it lacks.
  *
+ * Shared by the panel ("set up drive", two clicks: see what will be
+ * created, then create it) and the CLI:
  *   shade-tracker setup --drive "X"           create whatever is missing
  *   shade-tracker setup --drive "X" --check   report only; exit 1 if not ready
  *
@@ -17,10 +19,8 @@
  * silently.
  */
 
-const path = require("path");
-const ROOT = path.resolve(__dirname, "..");
-const shade = require(path.join(ROOT, "plugin/shade.js"));
-const { FIELD, COLUMN } = require(path.join(ROOT, "plugin/sync.js"));
+const shade = require("./shade.js");
+const { FIELD, COLUMN } = require("./sync.js");
 
 const TYPE_NAME = "Projects";
 const INVERSE_NAME = "Assets";

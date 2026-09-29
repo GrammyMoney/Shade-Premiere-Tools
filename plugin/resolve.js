@@ -104,6 +104,13 @@ async function resolveFile(mediaPath) {
   return { status: "unknown" };
 }
 
+/* A drive's display name, for messages. */
+function driveName(driveId) {
+  const d = (drives || []).find((x) => x.id === driveId) ||
+            [...volumes.values()].find((v) => v.driveId === driveId);
+  return d ? d.name : driveId;
+}
+
 /* The drive a volume is known to be, if any. */
 function driveForVolume(root) {
   const v = volumes.get(root);
@@ -125,4 +132,4 @@ function forget() {
   volumes.clear();
 }
 
-module.exports = { resolveFile, driveForVolume, rememberVolume, forget };
+module.exports = { resolveFile, driveForVolume, driveName, rememberVolume, forget };

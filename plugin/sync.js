@@ -294,7 +294,10 @@ async function syncDrive(driveId, entries, scan, summary) {
   try {
     schema = await schemaFor(driveId);
   } catch (e) {
-    summary.problems.push(e.message);
+    // A drive without the fields is not an error the editor caused, and not
+    // one to shout about: the panel offers to set it up.
+    if (e instanceof MissingSchema) summary.needsSetup.push(driveId);
+    else summary.problems.push(e.message);
     return;
   }
 
@@ -342,11 +345,13 @@ async function syncDrive(driveId, entries, scan, summary) {
  *   changes   { imported, used, linked }: which fields those writes fixed
  *   retry     Shade has not caught up yet -- a file or the .prproj not
  *             indexed, or a volume not proven. Worth another pass soon.
+ *   needsSetup  drive ids whose fields are missing (see setup.js)
  *   problems  messages worth showing
  */
 async function run(scan) {
   const summary = { status: "tracked", onShade: 0, written: 0,
-                    changes: { imported: 0, used: 0, linked: 0 }, retry: false, problems: [] };
+                    changes: { imported: 0, used: 0, linked: 0 }, retry: false,
+                    needsSetup: [], problems: [] };
 
   summary.status = await projectHome(scan);
   if (summary.status !== "tracked") {
