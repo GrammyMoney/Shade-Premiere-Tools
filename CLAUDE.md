@@ -30,8 +30,9 @@ to `https://api.shade.inc` directly, and Shade is the only store.
 **Phase: setup.** Repo created 2026-09-29. The Shade schema exists in Adobe
 Sandbox (below). No plugin code yet.
 
-The custom-object endpoints have been found in the web app's code (see
-"Custom-object API"). Next: confirm them live with an `sk_` key.
+Every Shade call the plugin needs has been confirmed live with an `sk_` key
+(see "Custom-object API"). The one open design question is mapping a
+`/Volumes/` mount to a drive ID. After that, write the plugin.
 
 ## The Shade model
 
@@ -96,9 +97,9 @@ nothing that can disagree with itself.
   not a text path. A freshly saved project may not be indexed by Shade yet,
   so a missing `.prproj` asset is *normal* and must not fail the write. Leave
   the column empty and fill it on a later pass.
-- **Assets are resolved by drive-relative path.** A clip at
-  `/Volumes/<drive>/Footage/a.mp4` is `/Footage/a.mp4` on the drive, looked
-  up with `GET /assets/path?path=&drive_id=`. Anything outside a Shade mount
+- **Assets are resolved by path.** A clip at
+  `/Volumes/<drive>/Footage/a.mp4` is `/<driveId>/Footage/a.mp4` to Shade,
+  looked up with `GET /assets/path?path=&drive_id=`. Anything outside a Shade mount
   is not ours and is skipped silently: most projects mix Shade media with
   local media, and that is not an error.
 - **Relations are read-merge-write, which can lose an append.** Setting a
@@ -132,8 +133,12 @@ URL for markdown. `?ask=<question>` on a docs URL queries their search.
   - `PUT  /assets/metadata/values` (bulk)
   - `GET  /workspaces/drives/{drive_id}/metadata` (schema, including system
     fields)
-- `GET /assets/path?path=&drive_id=` → `AssetDTO`. The path is
-  drive-relative and starts with `/`.
+- `GET /assets/path?path=&drive_id=` → `AssetDTO`. **The path must start
+  with the drive's ID**: `/<driveId>/Graphic Design/a.mov`. The
+  drive-relative `/Graphic Design/a.mov` that the docs imply returns `404
+  Asset not found`. Every `path` Shade returns carries the same prefix.
+  **Lookup is case-sensitive** (a lower-cased path 404s), so pass the exact
+  spelling on disk, which is what Premiere reports.
 - Webhooks exist (`asset.updated` etc., via a Svix dashboard) but aren't
   needed: the plugin is the only writer of these fields.
 - The official SDK is Python only and hasn't been updated since February
@@ -142,10 +147,11 @@ URL for markdown. `?ask=<question>` on a docs URL queries their search.
 ## Custom-object API (undocumented)
 
 **Read out of the Shade web app's own JavaScript** (`app.shade.inc`,
-`main-*.js`, 2026-09-29), because none of it is in Shade's docs. It's the
-same API the app uses, so it's real. But it's unpublished and can change
-without notice. Treat every shape here as **seen in the bundle, not yet
-confirmed with an `sk_` key**, until the live check below is done.
+`main-*.js`, 2026-09-29), because none of it is in Shade's docs. **Then
+confirmed live with an `sk_` key the same day**: list type, list records,
+create a record, write a relation, delete a record. It's unpublished, so it
+can change without notice. If a call starts failing, re-read the bundle
+before assuming our code is wrong.
 
 ```
 GET    /workspaces/drives/{drive}/custom-object-types                  list types
@@ -157,6 +163,7 @@ POST   /workspaces/drives/{drive}/custom-object-types/{type}/records    create
 GET    /workspaces/drives/{drive}/custom-object-types/{type}/records/{id}
 PATCH  /workspaces/drives/{drive}/custom-object-types/{type}/records/{id}
          body {name} or {metadata: {...}}
+DELETE /workspaces/drives/{drive}/custom-object-types/{type}/records/{id}   -> 204
 GET    /workspaces/drives/{drive}/custom-object-types/records/{id}      by id alone
 GET    /workspaces/drives/{drive}/relation-targets?object_type=custom_object
          &target_database_id=&query=&limit=                             picker search
@@ -171,33 +178,56 @@ GET    /workspaces/drives/{drive}/relation-targets?object_type=custom_object
 - **Reads come back differently from writes.** A record carries
   `metadata_values: [{id: <columnId>, ...}]`, and a relation reads back as
   `[{entity_type, id, name, ...}]`. Convert before writing back.
-- **Asset values are written in bulk:**
-  `PUT /assets/metadata/values` with
-  `{drive_id, asset_ids: [...], metadata_attributes: [{id, value, append}]}`.
-  **`append: true` exists.** If it works for relation fields, Shade appends a
-  project on its side, and the read-merge-write race described in Decisions
-  goes away. The other form,
-  `{drive_id, asset_ids_with_metadata_attributes: [{asset_id,
-  metadata_attributes: [{id, value}]}]}`, is per asset and has no append.
-- The web app sends a Firebase user token, not an `sk_` key. **Whether these
-  routes accept an `sk_` key is not yet known.** It's the first thing to test.
-- There's no "find record by column value" route in the bundle. Finding a
-  Project by GUID means listing the type's records and matching locally.
-  Cache the GUID → record ID map in the plugin's data folder.
+- **`sk_` keys work on every custom-object route**, even though the web app
+  itself authenticates with a Firebase user token.
+- **Create returns `201` with the full record**, including `id` and the
+  stored `metadata_values`. That's all the plugin needs to cache.
+- **Asset values are written with `PUT /assets/metadata/values`.** A relation
+  value there is a plain array: `[{id, type: "custom_object"}]`, with no
+  `kind` wrapper. Two body forms both work:
+  - `{drive_id, asset_ids: [...], metadata_attributes: [{id, value}]}`: the
+    same values for many assets.
+  - `{drive_id, asset_ids_with_metadata_attributes: [{asset_id,
+    metadata_attributes: [{id, value}]}]}`: different values per asset. This
+    is the one the plugin wants, because each asset's link list differs.
+
+  Both answer `[{asset_id, updated_metadata_attribute_ids}]`.
+- **`append: true` is silently ignored for relation fields. It REPLACES.**
+  Measured 2026-09-29: an asset linked to one project, written with
+  `append: true` and a second project, came back linked to the second only.
+  The call returned 200 and listed the field as updated. So the only way to
+  add a project is **read the asset, merge, write the whole list**. That's
+  the race described in Decisions, and it's real, not theoretical.
+- **Asset custom values are on `GET /assets/{id}?drive_id=`, under
+  `custom_metadata`**, keyed by field ID. `GET /assets/{id}/metadata` returns
+  **only system fields** (codec, duration, …), not custom ones. It looks
+  like the right endpoint and isn't.
+- **Deleting a record removes it from every asset's relation automatically.**
+  No dangling references, and no cleanup pass needed.
+- Relation columns carry `paired_to` and `relation_config.inverse` (both
+  `null` on ours). That suggests Shade can pair a relation with a reverse
+  column on the other side, e.g. an automatic "Assets" column on Projects.
+  Unexplored; worth a look before building any "assets in this project"
+  view by hand.
+- There's no "find record by column value" route. Finding a Project by GUID
+  means listing the type's records and matching locally. Cache the GUID →
+  record ID map in the plugin's data folder.
 
 ## Unknowns, to settle before writing code
 
-1. ~~Custom-object REST endpoints.~~ Found; see above. Confirm them live with
-   an `sk_` key.
-2. **Relation value shape on an asset**, and whether `append: true` works for
-   relations. Test against one asset with `PUT /assets/metadata/values`.
+1. ~~Custom-object REST endpoints.~~ Found, and confirmed live with an `sk_`
+   key.
+2. ~~Relation value shape on an asset / does `append` work?~~ `[{id, type}]`,
+   and no, it replaces. See "Custom-object API".
 3. **Mount → drive ID.** Shade mounts drives over SMB from localhost:
    `//GUEST:@shadefs:<port>/<Name>` on `/Volumes/<Name>` (seen:
    `Alex B Sandbox`). UXP can't run `mount`, so the plugin can't discover
    this itself. Likely answer: the panel lists drives from the API and the
    user confirms which `/Volumes/` folder each one is. Verify first whether
    the mount name always equals the drive's display name. If it does, this
-   can be automatic.
+   can be automatic. Drives also carry `settings.mount_path_macos`,
+   `mount_path_linux` and `mount_path_windows`, all `null` on Adobe Sandbox.
+   If Shade fills these in somewhere, they're the proper answer.
 4. ~~Does `Projects Used In` link on import, or only on use?~~ **Decided
    2026-09-29: on import.** See Decisions.
 
