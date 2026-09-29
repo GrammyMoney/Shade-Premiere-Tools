@@ -25,7 +25,15 @@ const WRITE_BATCH = 50;
 
 /* ------------------------------------------------------------- schema */
 
-const schemas = new Map();     // driveId -> schema, for this session
+const schemas = new Map();     // driveId -> { schema, at }
+
+/*
+ * Field ids are re-read every 10 minutes, not once per session. A panel runs
+ * for days, and fields do get replaced: "Projects Used In" was re-created as
+ * a two-way relation on 2026-09-29, and a panel holding the old id would
+ * have gone on writing to the archived field.
+ */
+const SCHEMA_TTL_MS = 10 * 60 * 1000;
 
 class MissingSchema extends Error {}
 
@@ -41,7 +49,8 @@ class MissingSchema extends Error {}
  * otherwise quietly spawn a second set of columns.
  */
 async function schemaFor(driveId) {
-  if (schemas.has(driveId)) return schemas.get(driveId);
+  const cached = schemas.get(driveId);
+  if (cached && Date.now() - cached.at < SCHEMA_TTL_MS) return cached.schema;
 
   const fields = (await shade.listFields(driveId)) || [];
   const live = fields.filter((f) => !f.archived && !f.deleted && f.location === "custom");
@@ -81,7 +90,7 @@ async function schemaFor(driveId) {
     guidColumn: guid.id,
     fileColumn: file && file.column_type === "relation" ? file.id : null
   };
-  schemas.set(driveId, schema);
+  schemas.set(driveId, { schema, at: Date.now() });
   return schema;
 }
 

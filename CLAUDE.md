@@ -78,13 +78,24 @@ In the **Adobe Sandbox** drive for now
 |---|---|---|---|---|
 | asset field | `Imported?` | bool | `be782155-a89f-4101-9e42-24dc2884d739` | the asset is in a project's bins |
 | asset field | `Used?` | bool | `dded2336-ad10-4b63-bdcc-88d5c460b913` | the asset is on a timeline |
-| asset field | `Projects Used In` | relation → Projects | `2239d488-117c-4e3e-b24c-cff21a592a66` | appended to, never replaced |
+| asset field | `Projects Used In` | **two-way** relation → Projects | `4d6887a9-1c7a-4ee2-8311-7d5f9ec35bf4` | appended to, never replaced; mirrored as `Assets` |
 | object | `Projects` | custom object | `d31ed47a-f6b7-4796-bbd4-5db193c9123e` | one record per Premiere project |
 | Projects column | `Project GUID` | str | `11968d4d-a1f1-44dc-ab7d-95e3defbea30` | `Project.guid`: the identity key |
 | Projects column | `Project File` | relation → asset | `8550ba00-0017-4736-9522-9f92ee6f3aaa` | the `.prproj`, which lives on the drive |
+| Projects column | `Assets` | paired to `Projects Used In` | `3a34017a-900d-4956-a7f1-3fc9d83a567b` | **maintained by Shade**, never written by us |
 | asset field | `Project Media` | relation → asset | `857a7a3e-ef1a-45bc-be0a-4ea8a91023d5` | on a `.prproj`: the Shade media in it. Optional. |
 
-Created 2026-09-29 through the Shade MCP. **Look fields up by name at
+Created 2026-09-29 through the Shade MCP and REST.
+
+**`Projects Used In` was re-created as a two-way relation** the same day, so
+that Projects gets an `Assets` column Shade keeps mirrored itself: no writes
+from us, it can't drift, and links added by hand appear too. A relation can
+only be made two-way when it's created, so the migration was: back up every
+value (9 assets, 11 links), rename the old field `Projects Used In (old)`
+(`2239d488…`), create the new one with `inverse: {enabled: true, name:
+"Assets"}`, copy every value, verify 9/9 against the backup, then archive the
+old field. The code finds fields by name, so nothing in it changed. It's all
+repeatable on another drive the same way. **Look fields up by name at
 runtime; don't hard-code these IDs.** They're specific to this drive, and
 another drive will have its own. The plugin should create any that are
 missing (or say which are missing) rather than assume they exist.
@@ -219,6 +230,9 @@ nothing that can disagree with itself.
 - **Missing fields are reported, not created.** Adding columns to someone's
   drive is a person's decision, and a mistyped name in code would quietly
   create a second set. The panel names exactly which field is missing.
+- **Field ids are re-read every 10 minutes**, not once per session. A panel
+  runs for days, and a field replaced under it (as `Projects Used In` was)
+  would otherwise keep receiving writes to the archived copy.
 - **The Projects object is found through its relation, not by name.**
   `Projects Used In` names its target type, so renaming "Projects" in
   Shade's UI doesn't break anything. The field and column names are the
