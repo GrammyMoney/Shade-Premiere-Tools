@@ -1,7 +1,7 @@
 {
   "id": "com.grammymoney.shadetracker",
   "name": "Shade Tracker",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "main": "index.html",
   "manifestVersion": 5,
   "host": {
@@ -24,7 +24,8 @@
   "requiredPermissions": {
     "network": {
       "domains": [
-        "https://api.shade.inc"
+        "https://api.shade.inc",
+        "ws://localhost:19876"
       ]
     },
     "localFileSystem": "fullAccess",

@@ -11,6 +11,20 @@ project has imported and used, directly into Shade's metadata:
 No local service: the plugin talks to `api.shade.inc` with your own API key.
 Only media on a mounted Shade drive (`/Volumes/<drive name>/...`) is tracked.
 
+With Shade Desktop running, it also:
+
+- **links proxies on import.** A clip whose `Linked Proxy` is set gets that
+  proxy attached, and a proxy dragged in alone gets its `Linked Hi Res`
+  attached. Both files are pinned.
+- **offers to pin a project's media when you open it.** It shows how many
+  files and how much data, what's already pinned and what isn't, and pins
+  only if you say yes. **pin project** in the panel asks again.
+- **offers to unpin a project when you close it** (with Premiere still
+  open), or any time with **unpin project** in the panel. Premiere doesn't
+  let plugins act when it quits, so quitting doesn't ask.
+
+This replaces **Shade Linker**. Uninstall it, so clips aren't handled twice.
+
 ## Install
 
 Build the installer, then double-click it (Creative Cloud installs it for

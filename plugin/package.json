@@ -4,6 +4,6 @@
   "version": "0.1.0",
   "description": "UXP plugin: reports which Shade assets each Premiere project imported and used.",
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test test/*.test.js"
   }
 }

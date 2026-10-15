@@ -13,7 +13,7 @@
  * Requires are guarded and reported. A require that throws at module scope
  * aborts the file silently: no log, no panel, nothing to debug against.
  */
-let log, attach, recent, dataFolderPath, shade, resolve, sync, setupDrive, tracker, uxp, entrypoints;
+let log, attach, recent, dataFolderPath, shade, resolve, sync, setupDrive, tracker, link, projectpins, uxp, entrypoints;
 let loadError = null;
 try {
   ({ log, attach, recent, dataFolderPath } = require("./log.js"));
@@ -22,6 +22,8 @@ try {
   sync = require("./sync.js");
   ({ setup: setupDrive } = require("./setup.js"));
   tracker = require("./tracker.js");
+  link = require("./link.js");
+  projectpins = require("./projectpins.js");
   uxp = require("uxp");
   ({ entrypoints } = uxp);
 } catch (e) {
@@ -94,9 +96,13 @@ function wireGlobalEvents() {
   const SE = C.SequenceEvent || {};
   const OE = C.OperationCompleteEvent || {};
 
+  // Opening a project seeds linking (what is already there is left alone)
+  // and asks once whether to pin its Shade media.
   const onOpened = () => {
     bindDirtyToActiveProject();
     tracker.requestNow("project_opened");
+    link.seed(ppro);
+    projectpins.offerSoon(ppro);
   };
 
   const wire = (label, name, handler) => {
@@ -106,11 +112,28 @@ function wireGlobalEvents() {
 
   wire("ProjectEvent.OPENED", PE.OPENED, onOpened);
   wire("ProjectEvent.ACTIVATED", PE.ACTIVATED, onOpened);
-  wire("OperationCompleteEvent.IMPORT_MEDIA_COMPLETE", OE.IMPORT_MEDIA_COMPLETE,
-       () => tracker.afterImport());
+  wire("ProjectEvent.CLOSED", PE.CLOSED, (event) => projectpins.onClosed(event));
+  wire("OperationCompleteEvent.IMPORT_MEDIA_COMPLETE", OE.IMPORT_MEDIA_COMPLETE, () => {
+    bindDirtyToActiveProject();
+    tracker.afterImport();
+    link.onImport(ppro);
+  });
   wire("SequenceEvent.ACTIVATED", SE.ACTIVATED, () => tracker.request("sequence_activated"));
 
   log(`bound ${bound.length} global event(s): ${bound.join(", ") || "none"}`);
+}
+
+/*
+ * Linking's backstop for imports the import event missed. Its own settle
+ * time, separate from tracking's debounce, and like it a timer that Premiere
+ * may throttle when idle -- fine, since the import event is the fast path.
+ */
+const LINK_SETTLE_MS = 2000;
+let linkTimer = null;
+function onDirty() {
+  tracker.request("dirty");
+  clearTimeout(linkTimer);
+  linkTimer = setTimeout(() => link.onDirty(ppro), LINK_SETTLE_MS);
 }
 
 async function bindDirtyToActiveProject() {
@@ -122,7 +145,7 @@ async function bindDirtyToActiveProject() {
     if (!project) return;
     const guid = String(await project.guid);
     if (guid === dirtyBoundTo) return;
-    em.addEventListener(project, PE.DIRTY, () => tracker.request("dirty"), false);
+    em.addEventListener(project, PE.DIRTY, onDirty, false);
     dirtyBoundTo = guid;
     log(`DIRTY bound to "${await project.name}"`);
   } catch (e) {
@@ -139,6 +162,8 @@ async function boot() {
   if (!ppro) return;
 
   shade.setKeyProvider(getKey);
+  // Files pinned on import belong to their project, so its unpin covers them.
+  link.setOnPinned(projectpins.remember);
 
   // Every run reports which project it saw, so a switch that arrived without
   // an OPENED event still moves DIRTY to the right project.
@@ -154,6 +179,8 @@ async function boot() {
   // Whatever is already open is unknown until it is scanned, and there will
   // be no DIRTY until someone touches it.
   tracker.requestNow("startup");
+  link.seed(ppro);
+  projectpins.offerSoon(ppro);
 }
 
 /* ------------------------------------------------------------------ panel */
@@ -243,6 +270,9 @@ function wirePanel() {
     num("n-shade", s ? s.onShade : null);
     num("n-used", t ? t.used : null);
     num("n-written", s ? s.written : null);
+    const ls = link.status();
+    num("n-linked", ls.linked);
+    num("n-pinned", ls.pinned + projectpins.status().pinned);
 
     if (st.lastRunAt) {
       set("meta", `last sync ${new Date(st.lastRunAt).toTimeString().slice(0, 8)} · ${st.runs} this session`);
@@ -352,6 +382,16 @@ function wirePanel() {
     bindDirtyToActiveProject();
     tracker.requestNow("manual");
     note("");
+  });
+
+  on("pinproject", async () => {
+    note("counting…");
+    note(await projectpins.offerPin(ppro, { always: true }));
+  });
+
+  on("unpinproject", async () => {
+    note("checking…");
+    note(await projectpins.unpinActive(ppro));
   });
 
   on("logs", async () => {

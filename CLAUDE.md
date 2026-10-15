@@ -25,6 +25,11 @@ are the gotchas below -- every one of them cost a test cycle to learn.
 There is **no local service, no database and no launcher.** The plugin talks
 to `https://api.shade.inc` directly, and Shade is the only store.
 
+**Since 0.2.0 (2026-10-14) it also links proxies and pins media**, through
+Shade Desktop's local bridge (`ws://localhost:19876`). See "Proxy linking
+and project pinning" below. That work came from **Shade-Linker**, which
+this replaces; don't run both.
+
 **A second way in, for editors without the panel: `cli/`.** (Added
 2026-09-29.) A Node CLI that finds `.prproj` files on a Shade drive through
 the API, parses them, and runs **the panel's own sync code** on the result,
@@ -43,6 +48,7 @@ and see "Panel and CLI" for why they can't disagree.
 | sync against real Shade | **Verified end to end** with `tools/harness.js`: volume proven, record created, fields and links written, second project appended not replaced, repeat pass writes nothing, rename renames, Project File links. All test data deleted afterwards. |
 | `cli/` | **Working** against Adobe Sandbox. 14 tests (parser, selection). Not yet installed as a LaunchAgent. |
 | inside Premiere | **Working** (first load 2026-09-29, UDT, Premiere 26.5.1). Three projects, three clips from Adobe Sandbox; Shade matched the plugin's state exactly. |
+| linking + pinning (0.2.0) | Linking ported from Shade-Linker (worked in Premiere there). `tools/pins-harness.js` passes against the real bridge and real files on Adobe Sandbox. **Not yet loaded in Premiere**: the dialogs, `ProjectEvent.CLOSED` and its payload are unverified. |
 
 **Verified inside Premiere on first load:** the key panel (`<input
 type="password">`, `secureStorage` round trip), `fetch` to api.shade.inc,
@@ -277,6 +283,68 @@ nothing that can disagree with itself.
 - **The API key is the user's own and stays in `uxp.storage.secureStorage`.**
   It has every permission its owner has, so it never goes in the repo, a log
   line or a plain file.
+
+## Proxy linking and project pinning
+
+Added 2026-10-14 by folding Shade-Linker in. Plugin only; the CLI does
+none of it (it has no mount and no bridge).
+
+- **Import linking** (`link.js`, from Shade-Linker unchanged): a clip that
+  arrives after the project was opened gets the other half of its pair
+  attached (`Linked Proxy` → `attachProxy(proxy, false)`; `Linked Hi Res` →
+  `attachProxy(hiRes, true)`), and both files are pinned. No question asked:
+  it's one clip. Everything in Shade-Linker's CLAUDE.md "Decisions" still
+  holds.
+- **Project pinning** (`projectpins.js`): when a project opens (and at
+  startup), the editor is asked once per project per session:
+  "Number of assets: x (size) · Already pinned: … · Not pinned: … Would you
+  like to pin these?". Nothing is asked when it's all pinned already.
+  - **What counts** (decided 2026-10-14): every file the project reads from
+    a mounted Shade drive: each clip's media, its attached proxy, and, for
+    a clip with no proxy attached, the file its `Linked Proxy` points at.
+    Not the Projects record's Assets column (that includes other editors'
+    media).
+  - **Asked, never automatic**, because a real media pool is terabytes.
+    The panel's **pin project** asks again on demand.
+- **Unpinning** (decided 2026-10-14): **there is no event before Premiere
+  quits and nothing can delay a quit** (no app-quit event in the Premiere
+  UXP docs; panel `destroy()` is synchronous). So:
+  - `ProjectEvent.CLOSED` (25.6+, payload `id`, `name`, `path`) asks
+    "Would you like to unpin the project 'x'?". Works when a project is
+    closed with Premiere still open. At quit it's tried, and lost if the
+    plugin is torn down first.
+  - The panel's **unpin project** does the same for the active project.
+  - By CLOSED the project can't be walked, so what's unpinned is what this
+    session saw of it: the files counted for the pin prompt plus anything
+    pinned on import. `id` is assumed to be the guid; `path` is the fallback.
+  - Only files pinned **by themselves** can be unpinned. A file inside a
+    pinned folder stays pinned with its folder (logged, not asked about).
+  - A file shared with another project is unpinned too. Accepted for now.
+- **Dialogs** (`dialog.js`): a `<dialog>` built on demand, `uxpShowModal`,
+  `<sp-button>`s, one at a time. Esc or the title-bar close is "no". The
+  plugin runs with no panel open, so whether a modal shows from a
+  never-opened panel's document is **unverified**; if it can't show, the
+  error is logged and the panel buttons still work.
+- **Module layout**: `walk.js` (active project, clip items) and
+  `shadefs.js` (mounts, inode+size, pin list, pin/unpin) are shared by
+  `link.js` and `projectpins.js`, which keeps the requires one-way.
+  `shadefs.pin`/`unpin` call through to `bridge.js` at call time, so a
+  harness stub of `bridge.pin` takes effect. (They once held a copy of the
+  function, and the harness really pinned 1.7 GB.)
+
+### Bridge facts added 2026-10-14
+
+Probed live against Shade Desktop with Adobe Sandbox, UMBRAL INTERNAL and
+Design mounted:
+- `pin list` → text, one `"<remote_uri>:<path inside the drive>"` per line,
+  no leading slash. **Folders appear too** (`…:Shade Logos`), meaning
+  everything under them is pinned. `pins.parsePinList` / `isPinned`.
+- `pin stats` → a size table, with `?` for files it can't name. Not used.
+- `pin remove <ino>…` works (code 0), the same shape as `pin add`.
+  Verified by removing four test pins. `pin remove` with no inode answers
+  `Please specify at least one ino`.
+- Inodes from Node's `fs.stat` on the SMB mount match what pin/unpin act
+  on (the four pins above were removed by Node-read inodes).
 
 ## Panel and CLI
 
@@ -549,7 +617,8 @@ Measured on Premiere 26.5.1 / macOS / arm64 unless stated.
 
 ## Out of scope
 
-- Proxies, relinking, a launcher, search. SHINE has all of these.
+- Relinking, a launcher, search. SHINE has these. (Proxies came in with
+  0.2.0, from Shade-Linker; see above.)
 - Unsetting `Imported?`/`Used?` when an asset leaves a project.
 - Usage hidden inside nested sequences, multicam, Dynamic Link, MOGRTs.
 - More than one Shade workspace at once.
@@ -560,6 +629,9 @@ Measured on Premiere 26.5.1 / macOS / arm64 unless stated.
 scripts/package-ccx.sh build the installable .ccx into dist/ (bash 3.2)
 CLAUDE.md              this file
 docs/shade-endpoints.txt   every documented endpoint, extracted from Shade's docs
+tools/pins-harness.js  project pinning + import linking under Node: REAL bridge
+                       (read-only) and real files on a mount; REST, dialogs and
+                       pin/unpin stubbed. Changes nothing.
 tools/harness.js       runs the plugin's sync under Node against REAL Shade,
                        with uxp stubbed. Writes to real assets: use a test
                        GUID, clean up afterwards.
@@ -571,7 +643,7 @@ cli/                   the parser, for editors without the panel. Node >= 20, no
   test/                node --test
 plugin/                the UXP plugin. Manifest v5, flat, no build step.
   platform.js          the seam: UXP by default, swapped for Node by the CLI
-  manifest.json        host is an OBJECT; network: https://api.shade.inc
+  manifest.json        host is an OBJECT; network: https://api.shade.inc, ws://localhost:19876
   main.js              entry: event wiring, API key, panel
   tracker.js           debounce -> scan -> sync
   scan.js              project walk; collapse() is pure and tested
@@ -580,6 +652,14 @@ plugin/                the UXP plugin. Manifest v5, flat, no build step.
   resolve.js           media path -> Shade asset; proving a volume is a drive
   paths.js             /Volumes/<X>/<rest> <-> /<driveId><rest>. Pure, tested.
   setup.js             create what a drive lacks, or report it. Panel + CLI.
+  link.js              new clip -> Linked Proxy/Hi Res -> attach -> pin (from Shade-Linker)
+  projectpins.js       ask to pin a project on open; ask to unpin on close / button
+  dialog.js            yes/no modal (uxpShowModal), one at a time
+  shadefs.js           this Mac's Shade: mounts, inode+size, pin list, pin/unpin
+  bridge.js            Shade Desktop's ws://localhost:19876 (from Shade-Linker)
+  walk.js              active project and its clip items, for link/projectpins
+  mounts.js            bridge mount table <-> paths. Pure, tested (Linker's paths.js)
+  pins.js              link/pin rules, pin-list parsing, prompt numbers. Pure, tested
   shade.js             REST client: auth header, retries, every route used
   log.js               queued log file (from premiere-events)
   test/                node --test
@@ -606,7 +686,8 @@ to re-enter it). The installed copy's data folder is under
 ## Working conventions
 
 - Repo: `github.com/GrammyMoney/Shade-Tracker` (private), branch `main`.
-- Plain JS, no build step. `cd plugin && npm test` for the pure parts;
+- Plain JS, no build step. `cd plugin && npm test` for the pure parts
+  (`node --test test/*.test.js`: Node 24 rejects a bare directory);
   `tools/harness.js` for sync against real Shade; everything Premiere-side is
   verified by loading it.
 - Keep it small. If a feature needs a local service, it belongs in SHINE.
