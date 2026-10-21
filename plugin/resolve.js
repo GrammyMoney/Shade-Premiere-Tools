@@ -20,6 +20,14 @@
  * Nothing here is saved between sessions. Re-proving a volume costs one
  * lookup, and a map that outlives a remount or a key change is a map that
  * can be wrong.
+ *
+ * In the panel there is a better witness than any file: Shade Desktop's own
+ * mount table, which says which drive id it mounted where. It is asked first
+ * (setMountSource). Matching on names failed for real on 2026-10-20: Adobe
+ * Sandbox was renamed "Adobo Sandbox" in Shade while still mounted as
+ * /Volumes/Adobe Sandbox, so no drive name matched and the project waited
+ * forever -- while linking, which uses the mount table, worked. The CLI has
+ * no Shade Desktop, so it keeps the name + size proof.
  */
 
 const { log } = require("./log.js");
@@ -32,6 +40,28 @@ let drives = null;            // [{ id, name }]
 let drivesAt = 0;
 const volumes = new Map();    // "/Volumes/X" -> { driveId, name }
 let sizeWarned = false;
+let mountSource = null;       // async () => [{ root, driveId }], from Shade Desktop
+
+/*
+ * Where Shade Desktop says its drives are mounted. Kept as a hook, not a
+ * require of shadefs.js, so the CLI can share this file without a bridge.
+ */
+function setMountSource(fn) {
+  mountSource = fn;
+}
+
+/* The drive Shade Desktop mounted at this root, if it says so. */
+async function mountedDrive(root) {
+  if (!mountSource) return null;
+  let ms;
+  try {
+    ms = (await mountSource()) || [];
+  } catch (e) {
+    return null;              // Shade Desktop not running: fall back to names
+  }
+  const m = ms.find((x) => x && x.root && x.root.toLowerCase() === root.toLowerCase());
+  return m ? m.driveId : null;
+}
 
 async function allDrives(force) {
   if (drives && !force && Date.now() - drivesAt < DRIVE_LIST_TTL_MS) return drives;
@@ -79,6 +109,16 @@ async function resolveFile(mediaPath) {
     const asset = await shade.assetByPath(known.driveId, shadePath(known.driveId, v.rest));
     return asset ? { status: "found", driveId: known.driveId, asset }
                  : { status: "missing", driveId: known.driveId };
+  }
+
+  const mounted = await mountedDrive(v.root);
+  if (mounted) {
+    const known = (drives || []).find((d) => d.id === mounted);
+    rememberVolume(v.root, mounted, known ? known.name : v.name);
+    log(`${v.root} is Shade drive ${mounted.slice(0, 8)}, per Shade Desktop's mount table`);
+    const asset = await shade.assetByPath(mounted, shadePath(mounted, v.rest));
+    return asset ? { status: "found", driveId: mounted, asset }
+                 : { status: "missing", driveId: mounted };
   }
 
   let candidates = (await allDrives()).filter((d) => d.name === v.name);
@@ -132,4 +172,4 @@ function forget() {
   volumes.clear();
 }
 
-module.exports = { resolveFile, driveForVolume, driveName, rememberVolume, forget };
+module.exports = { resolveFile, driveForVolume, driveName, rememberVolume, setMountSource, forget };

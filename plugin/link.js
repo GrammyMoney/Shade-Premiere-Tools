@@ -22,6 +22,10 @@
  * Nothing is saved between sessions, on purpose: a fresh launch re-seeds
  * from what is in the project.
  *
+ * Two settings share this walk (settings.js): "linking" does the lookup and
+ * attach, "autoPin" the pinning. With linking off, a new clip is pinned
+ * straight from the mount, with no Shade request; with both off, nothing.
+ *
  * Came over from Shade-Linker. Pinning a whole project, with the editor's
  * say-so, is projectpins.js; this file only ever pins what was just imported,
  * and reports it through onPinned so the project's unpin covers it.
@@ -30,6 +34,7 @@
 const { log } = require("./log.js");
 const shade = require("./shade.js");
 const shadefs = require("./shadefs.js");
+const settings = require("./settings.js");
 const { safe, clips, activeProject } = require("./walk.js");
 const { locate, shadePath, localPath } = require("./mounts.js");
 const { linkedIds, pinnableIno, decide, fieldByName } = require("./pins.js");
@@ -46,6 +51,7 @@ const waiting = new Map();     // item id -> tries left, for files Shade has not
 const fields = new Map();      // driveId -> { ids: { proxy, hiRes }, at }
 let queue = Promise.resolve();
 let onPinned = () => {};     // (project, [{ path, ino, size, mount, rest }])
+let onNeedsSetup = () => {}; // (driveId): linking is on, the drive lacks both fields
 
 const stats = {
   linked: 0, pinned: 0, skipped: 0, failed: 0,
@@ -138,6 +144,7 @@ async function fieldIds(driveId) {
 }
 
 async function processAll(items) {
+  if (!settings.get("linking") && !settings.get("autoPin")) return;
   let ms;
   try {
     ms = await mounts();
@@ -166,6 +173,14 @@ async function processOne(item, ms) {
   if (!where) { waiting.delete(item.id); return; }   // not on a Shade drive: not ours
   const { mount, rest } = where;
 
+  // Auto-pinning without linking needs no Shade lookup: the clip, and a
+  // proxy someone else attached, are pinned by inode from the mount.
+  if (!settings.get("linking")) {
+    waiting.delete(item.id);
+    await pinOnly(item, path, mount);
+    return;
+  }
+
   const asset = await shade.assetByPath(mount.driveId, shadePath(mount.driveId, rest));
   if (!asset) {
     // On the drive but not indexed yet (Shade takes seconds). Look again on
@@ -179,6 +194,7 @@ async function processOne(item, ms) {
 
   const pins = [];
   const addPin = async (p) => {
+    if (!settings.get("autoPin")) return;
     const st = await shadefs.statOf(p);
     const where = locate(p, [mount]);
     if (pinnableIno(st.ino, mount.rootIno)) pins.push({ path: p, ino: st.ino, size: st.size, mount, rest: where && where.rest });
@@ -188,6 +204,7 @@ async function processOne(item, ms) {
   // Link first, so the editor sees the result before anything slow happens.
   const hasProxy = await safe(() => clip.hasProxy(), false);
   const ids = await fieldIds(mount.driveId);
+  if (!ids.proxy && !ids.hiRes) onNeedsSetup(mount.driveId);
   const plan = decide({ hasProxy,
                         proxyIds: linkedIds(asset, ids.proxy),
                         hiResIds: linkedIds(asset, ids.hiRes) });
@@ -224,13 +241,29 @@ async function processOne(item, ms) {
   }
 
   await addPin(path);
+  await sendPins(item, pins);
+}
+
+/* Auto-pinning alone: the clip and whatever proxy it already has. */
+async function pinOnly(item, path, mount) {
+  const pins = [];
+  for (const p of [path, await safe(() => item.clip.getProxyPath(), null)]) {
+    if (!p || !locate(p, [mount])) continue;
+    const st = await shadefs.statOf(p);
+    if (pinnableIno(st.ino, mount.rootIno)) pins.push({ path: p, ino: st.ino, size: st.size, mount, rest: locate(p, [mount]).rest });
+  }
+  await sendPins(item, pins);
+}
+
+async function sendPins(item, pins) {
   if (pins.length) {
     const r = await shadefs.pin(pins.map((x) => x.ino));
     if (r.code !== 0) throw new Error(`pin failed: ${r.data}`);
     stats.pinned += pins.length;
     if (item.project) onPinned(item.project, pins);
+    if (!settings.get("linking")) log(`${item.name}: pinned`);
   }
-  stats.last = name;
+  stats.last = item.name;
   stats.lastAt = Date.now();
 }
 
@@ -247,5 +280,10 @@ async function getAssetOrNull(driveId, assetId) {
 function status() { return Object.assign({}, stats); }
 
 function setOnPinned(fn) { onPinned = fn; }
+function setOnNeedsSetup(fn) { onNeedsSetup = fn; }
 
-module.exports = { seed, onImport, onDirty, status, fieldIds, getAssetOrNull, setOnPinned };
+/* Field ids are re-read after setup creates them. */
+function forget() { fields.clear(); }
+
+module.exports = { seed, onImport, onDirty, status, fieldIds, getAssetOrNull, setOnPinned,
+                   setOnNeedsSetup, forget, FIELD_NAMES };

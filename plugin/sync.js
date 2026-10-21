@@ -233,7 +233,7 @@ async function writeProjectMedia(driveId, schema, prproj, done) {
  * measured): a proven volume is enough, and on an unproven one the project
  * file or any clip on that volume can prove it.
  */
-async function projectHome(scan) {
+async function projectHome(scan, summary) {
   if (!scan.path) return "unsaved";
   const v = splitVolume(scan.path);
   if (!v) return "local";
@@ -242,10 +242,21 @@ async function projectHome(scan) {
   const witnesses = [scan.path].concat(
     scan.files.map((f) => f.mediaPath).filter((p) => p.startsWith(v.root + "/")).slice(0, 3));
   for (const p of witnesses) {
-    const r = await resolveFile(p).catch(() => ({}));
+    // A failed lookup (a 401, Shade down) is reported, not taken as "not
+    // Shade": swallowing it once left a project waiting with no reason given.
+    const r = await resolveFile(p).catch((e) => {
+      summary.problems.push(e.message);
+      return {};
+    });
     if (r.driveId) return "tracked";
   }
   return "waiting";
+}
+
+/* The drive the .prproj itself is on, once its volume is proven. */
+function homeDrive(scan) {
+  const v = splitVolume(scan.path || "");
+  return v ? driveForVolume(v.root) : null;
 }
 
 /*
@@ -280,7 +291,7 @@ async function resolveFiles(scan, summary) {
       continue;
     }
     if (r.status === "missing") summary.retry = true;     // on Shade, not indexed yet
-    if (r.status !== "found") continue;
+    if (r.status !== "found") { summary.skipped++; continue; }
     if (!prev) summary.onShade++;
     if (!byDrive.has(r.driveId)) byDrive.set(r.driveId, []);
     byDrive.get(r.driveId).push({ file: f, asset: r.asset });
@@ -342,6 +353,7 @@ async function syncDrive(driveId, entries, scan, summary) {
  *   status    tracked | unsaved | local | waiting
  *   onShade   files that are Shade assets
  *   written   assets whose values changed this pass
+ *   skipped   files not on Shade: local, an unproven volume, or not indexed
  *   changes   { imported, used, linked }: which fields those writes fixed
  *   retry     Shade has not caught up yet -- a file or the .prproj not
  *             indexed, or a volume not proven. Worth another pass soon.
@@ -349,17 +361,25 @@ async function syncDrive(driveId, entries, scan, summary) {
  *   problems  messages worth showing
  */
 async function run(scan) {
-  const summary = { status: "tracked", onShade: 0, written: 0,
+  const summary = { status: "tracked", onShade: 0, written: 0, skipped: 0,
                     changes: { imported: 0, used: 0, linked: 0 }, retry: false,
                     needsSetup: [], problems: [] };
 
-  summary.status = await projectHome(scan);
+  summary.status = await projectHome(scan, summary);
   if (summary.status !== "tracked") {
     summary.retry = summary.status === "waiting";
     return summary;
   }
 
-  const byDrive = await resolveFiles(scan, summary);
+  // The project's own drive goes first, and always: its record is created
+  // as soon as the project is known to be on Shade, before any asset is
+  // written, and even while it holds no Shade media yet.
+  const found = await resolveFiles(scan, summary);
+  const home = homeDrive(scan);
+  const byDrive = new Map();
+  if (home) byDrive.set(home, found.get(home) || []);
+  for (const [driveId, entries] of found) if (driveId !== home) byDrive.set(driveId, entries);
+
   for (const [driveId, entries] of byDrive) await syncDrive(driveId, entries, scan, summary);
   return summary;
 }

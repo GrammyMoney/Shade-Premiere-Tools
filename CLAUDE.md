@@ -84,14 +84,23 @@ In the **Adobe Sandbox** drive for now
 |---|---|---|---|---|
 | asset field | `Imported?` | bool | `be782155-a89f-4101-9e42-24dc2884d739` | the asset is in a project's bins |
 | asset field | `Used?` | bool | `dded2336-ad10-4b63-bdcc-88d5c460b913` | the asset is on a timeline |
-| asset field | `Projects Used In` | **two-way** relation → Projects | `4d6887a9-1c7a-4ee2-8311-7d5f9ec35bf4` | appended to, never replaced; mirrored as `Assets` |
-| object | `Projects` | custom object | `d31ed47a-f6b7-4796-bbd4-5db193c9123e` | one record per Premiere project |
-| Projects column | `Project GUID` | str | `11968d4d-a1f1-44dc-ab7d-95e3defbea30` | `Project.guid`: the identity key |
-| Projects column | `Project File` | relation → asset | `8550ba00-0017-4736-9522-9f92ee6f3aaa` | the `.prproj`, which lives on the drive |
-| Projects column | `Assets` | paired to `Projects Used In` | `3a34017a-900d-4956-a7f1-3fc9d83a567b` | **maintained by Shade**, never written by us |
+| asset field | `Projects Used In` | **two-way** relation → Premiere Projects | `50d1d996-9929-4149-922f-a7e50038d543` | appended to, never replaced; mirrored as `Assets`. Created 2026-10-20 by the panel's setup dialog |
+| object | `Premiere Projects` | custom object | `ca7c8bbd-a45a-496c-9efe-4bb03a6ad5c3` | one record per Premiere project. Created 2026-10-20 through the MCP |
+| Premiere Projects column | `Project GUID` | str | `04b09d24-e3e6-48e4-a054-7635dff65936` | `Project.guid`: the identity key |
+| Premiere Projects column | `Project File` | relation → asset | `4a1a616a-7092-48b4-948f-0e5e8cfd6856` | the `.prproj`, which lives on the drive |
+| Premiere Projects column | `Assets` | paired to `Projects Used In` | `61d440fe-2644-4932-98fd-617678b24647` | **maintained by Shade**, never written by us |
 | asset field | `Project Media` | relation → asset | `857a7a3e-ef1a-45bc-be0a-4ea8a91023d5` | on a `.prproj`: the Shade media in it. Optional. |
 
 Created 2026-09-29 through the Shade MCP and REST.
+
+**Reset 2026-10-20:** the old `Projects` object (`d31ed47a…`, 10 records)
+was deleted by hand, which also removed `Projects Used In`; every record
+and link went with it. `Premiere Projects` was created empty through the
+MCP. The MCP can't create a two-way relation, so `Projects Used In` was
+created by the panel's setup dialog, the first real run of it: Project
+tracking switched on with "Measuring Tape" open, one item created, then the
+record, then 6 clips linked. Verified in Shade the same night. Imported?, Used?, Project Media and the
+Linked Proxy / Hi Res fields were untouched.
 
 **`Projects Used In` was re-created as a two-way relation** the same day, so
 that Projects gets an `Assets` column Shade keeps mirrored itself: no writes
@@ -213,6 +222,15 @@ nothing that can disagree with itself.
   - Anything outside `/Volumes/` (e.g. `/Users/...`) is local, and skipped
     without asking Shade.
 
+  **Since 2026-10-20 the panel asks Shade Desktop's mount table first**
+  (`resolve.setMountSource`, fed by `shadefs.mounts()`), and only falls back
+  to the name + size proof when the bridge isn't there (always, for the
+  CLI). Names went stale for real: Adobe Sandbox was renamed "Adobo Sandbox"
+  in Shade while still mounted as `/Volumes/Adobe Sandbox`, so no name
+  matched, every project waited forever, and linking (which already used the
+  mount table) worked. `projectHome` also used to swallow lookup errors;
+  they're now reported in the "not tracking" line.
+
   Filesystem markers were considered and rejected. A Shade mount's root
   shows `.trash/`, a zero-byte `.fseventsd` *file* and
   epoch-dated (1969) `.VolumeIcon.icns`. All distinctive, none documented,
@@ -227,6 +245,10 @@ nothing that can disagree with itself.
 - **Only write what changed.** Keep what was last written per project in the
   plugin's data folder and diff against it. A scan is cheap (24ms for 129
   items); a Shade write per asset per `DIRTY` would not be.
+- **The project's record comes first.** (Decided 2026-10-20.) As soon as
+  a project is known to be on a Shade drive, its record on that drive is
+  found or created, before any asset is written and even while the project
+  has no Shade media yet. Its own drive is always synced first.
 - **But always visit the project's record.** A pass where no asset changed
   must still check the Projects record on every drive the project has
   touched. Otherwise a rename, or a `.prproj` that has just been indexed,
@@ -238,13 +260,15 @@ nothing that can disagree with itself.
   set. Sync reports a drive without the fields in `summary.needsSetup` (not
   as an error), and setup is the one place that creates. It's reached two
   ways:
-  - **In the panel, two clicks.** The panel names the drive and offers
-    "set up drive". The first click runs the check and lists exactly what
-    will be added; the second creates it and starts tracking. Not silent,
-    because it adds fields every user of the drive will see, and Shade can
-    only archive a field, never delete one. A 401/403 is explained as "ask a
-    drive owner", not shown as a status code. This is what lets someone who
-    just downloaded the panel start on a fresh drive with no Terminal.
+  - **In the panel, when a feature is switched on** (since 2026-10-20;
+    it replaced an inline two-click "set up drive" box). `enable.js` checks
+    the active project's drive; if fields are missing, a dialog lists them
+    and asks ("Create Fields" / "Not Now"). Not silent, because it adds
+    fields every user of the drive will see, and Shade can only archive a
+    field, never delete one. Declined, a conflict, or a 401/403 ("ask a
+    drive owner"): the toggle goes back off. A drive met later (another
+    project, sync's `needsSetup`, link.js finding no link fields) gets the
+    same dialog once per drive per session.
   - **`shade-tracker setup --drive X`** from the CLI.
 
   Setup itself is idempotent, creates only what's absent, never
@@ -254,6 +278,23 @@ nothing that can disagree with itself.
   Shade only allows that at creation. Setup always creates it two-way; an
   existing one-way field is reported with a pointer to the migration, not
   migrated silently.
+- **Three features, each a Settings toggle** (decided 2026-10-20):
+  auto-pinning **on** by default, project tracking and proxy linking
+  **off**, because those two write fields everyone on a drive sees.
+  `settings.js` keeps them in `settings.json` in the data folder: the one
+  thing kept between sessions, and a preference for this Mac, not a record
+  of what Shade holds. Off means no event does anything for that feature
+  (`tracker.run` returns before scanning; link.js skips the lookup or the
+  pin). Switching one off undoes nothing. Auto-pinning without linking pins
+  new clips straight from the mount with no Shade request, so it works with
+  no API key.
+- **The object is "Premiere Projects", never "Projects".** (Decided
+  2026-10-20.) A customer's drive may have its own "Projects", and setup
+  must not adopt it. An existing `Projects Used In` pointing anywhere else
+  is a CONFLICT, not adopted. Sync still finds the object through the
+  relation, and a customer's "Projects" has no `Project GUID`, so sync
+  would refuse it too. Setup is per feature: `--linking` creates `Linked
+  Proxy` / `Linked Hi Res` (one-way to assets).
 - **Nothing is saved between sessions.** (Decided 2026-09-29, replacing a
   `state.json` of volumes, record ids and what had been written.) All of it
   lives for one Premiere launch or one CLI run. The saved "already written"
@@ -651,7 +692,9 @@ plugin/                the UXP plugin. Manifest v5, flat, no build step.
   plan.js              what to write to one asset. Pure, tested. The rules.
   resolve.js           media path -> Shade asset; proving a volume is a drive
   paths.js             /Volumes/<X>/<rest> <-> /<driveId><rest>. Pure, tested.
-  setup.js             create what a drive lacks, or report it. Panel + CLI.
+  setup.js             create what a drive lacks, or report it; per feature. Panel + CLI.
+  settings.js          which features run (Settings tab); settings.json
+  enable.js            switching a feature on: check the drive, ask, create
   link.js              new clip -> Linked Proxy/Hi Res -> attach -> pin (from Shade-Linker)
   projectpins.js       ask to pin a project on open; ask to unpin on close / button
   dialog.js            yes/no modal (uxpShowModal), one at a time

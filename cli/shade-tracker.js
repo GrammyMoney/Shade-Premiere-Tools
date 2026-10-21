@@ -263,8 +263,9 @@ async function cmdSetup(args) {
   shade.setKeyProvider(async () => key);
 
   const [drive] = await findDrives(args.drive);
-  console.log(`${args.check ? "Checking" : "Setting up"} "${drive.name}" (${drive.id})\n`);
-  const { ready, lines } = await setup(drive, { check: args.check });
+  const feature = args.linking ? "linking" : "tracking";
+  console.log(`${args.check ? "Checking" : "Setting up"} "${drive.name}" (${drive.id}) for ${feature}\n`);
+  const { ready, lines } = await setup(drive, { check: args.check, feature });
   const width = Math.max(...lines.map((l) => l.state.length));
   for (const l of lines) console.log(`  ${l.state.padEnd(width)}  ${l.what}${l.note ? " -- " + l.note : ""}`);
   console.log(ready ? "\nReady." : `\nNot ready.${args.check ? " Run without --check to create what is missing." : ""}`);
@@ -333,20 +334,22 @@ async function cmdStatus() {
 /* ---------------------------------------------------------------- main */
 
 function parseArgs(argv) {
-  const out = { _: [], drive: [], full: false, check: false, every: null };
+  const out = { _: [], drive: [], full: false, check: false, linking: false, every: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--drive") out.drive.push(argv[++i]);
     else if (a === "--every") out.every = argv[++i];
     else if (a === "--full") out.full = true;
     else if (a === "--check") out.check = true;
+    else if (a === "--linking") out.linking = true;
     else out._.push(a);
   }
   return out;
 }
 
 const USAGE = `usage: shade-tracker <command>
-  setup --drive NAME|ID [--check]             create the fields a drive needs (or report)
+  setup --drive NAME|ID [--check]             create the fields tracking needs (or report)
+  setup --drive NAME|ID --linking [--check]   the same for proxy linking (Linked Proxy/Hi Res)
   run --drive NAME|ID [--drive ...] [--full]   one pass over the drive(s)
   key                                         store your API key in the Keychain
   install --drive NAME|ID [--every MIN]       run automatically (default 15 min)

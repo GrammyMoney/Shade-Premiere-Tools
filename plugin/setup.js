@@ -1,10 +1,20 @@
 /*
  * Make a drive ready for Shade Tracker, or say what it lacks.
  *
- * Shared by the panel ("set up drive", two clicks: see what will be
- * created, then create it) and the CLI:
- *   shade-tracker setup --drive "X"           create whatever is missing
- *   shade-tracker setup --drive "X" --check   report only; exit 1 if not ready
+ * Per feature, because each Settings toggle needs its own fields:
+ *   tracking  Imported?, Used?, Project Media, Projects Used In, and the
+ *             "Premiere Projects" object with Project GUID / Project File
+ *   linking   Linked Proxy and Linked Hi Res: one-way relations to assets
+ *
+ * Shared by the panel (switching a feature on checks, then asks in a
+ * dialog before creating: enable.js) and the CLI:
+ *   shade-tracker setup --drive "X" [--linking]          create what is missing
+ *   shade-tracker setup --drive "X" [--linking] --check  report only; exit 1 if not ready
+ *
+ * The object is "Premiere Projects", never a bare "Projects" (decided
+ * 2026-10-20): a customer's drive may well have its own "Projects", and
+ * setup must not adopt it. For the same reason an existing "Projects Used
+ * In" that points anywhere but "Premiere Projects" is a conflict, not ours.
  *
  * Idempotent: everything is looked up first and only what is missing is
  * created, so running it again is the health check. It never modifies or
@@ -22,10 +32,13 @@
 const shade = require("./shade.js");
 const { FIELD, COLUMN } = require("./sync.js");
 
-const TYPE_NAME = "Projects";
+const TYPE_NAME = "Premiere Projects";
 const INVERSE_NAME = "Assets";
+const LINK_FIELDS = { proxy: "Linked Proxy", hiRes: "Linked Hi Res" };   // as link.js
 
 const DESCRIBE = {
+  [LINK_FIELDS.proxy]: "On a hi-res file: its proxy. Shade Tracker attaches it in Premiere on import.",
+  [LINK_FIELDS.hiRes]: "On a proxy: its hi-res file. Shade Tracker attaches it in Premiere on import.",
   type: "Premiere Pro projects, one record per project. Maintained by Shade Tracker; matched on Project GUID, not name.",
   [COLUMN.guid]: "Premiere's project id. The identity key; survives renames.",
   [COLUMN.file]: "The .prproj on this drive.",
@@ -44,17 +57,52 @@ const columnTarget = (c) =>
  * Returns { ready, lines } -- one line per item: "ok", "created", "missing"
  * (in --check), or "CONFLICT"/"WARN" with what to do.
  */
-async function setup(drive, { check = false } = {}) {
+async function setup(drive, { check = false, feature = "tracking" } = {}) {
+  const fields = ((await shade.listFields(drive.id)) || [])
+    .filter((f) => !f.archived && !f.deleted && f.location === "custom");
+  if (feature === "linking") return setupLinking(drive, fields, check);
+  if (feature !== "tracking") throw new Error(`no feature "${feature}"`);
+  return setupTracking(drive, fields, check);
+}
+
+/* Linked Proxy / Linked Hi Res: one-way on purpose, so neither fills in the other. */
+async function setupLinking(drive, fields, check) {
   const lines = [];
   const say = (state, what, note) => lines.push({ state, what, note });
   let ready = true;
+  const toCreate = [];
+  for (const name of Object.values(LINK_FIELDS)) {
+    const f = fields.find((x) => x.name === name);
+    const label = `field "${name}"`;
+    if (!f) { toCreate.push({ column_name: name, column_type: "relation", description: DESCRIBE[name],
+                              relation_config: { target: { kind: "asset" } } }); continue; }
+    const t = targetOf(f);
+    if (f.value_type !== "relation" || !t || t.kind !== "asset") {
+      say("CONFLICT", label, `is ${f.value_type}${t ? " to " + t.kind : ""}, needs a relation to assets`);
+      ready = false;
+    } else {
+      say("ok", label);
+    }
+  }
+  if (toCreate.length) {
+    if (check) { toCreate.forEach((w) => say("missing", `field "${w.column_name}"`, "relation to assets")); ready = false; }
+    else {
+      await shade.addAssetFields(drive.id, toCreate);
+      toCreate.forEach((w) => say("created", `field "${w.column_name}"`, "relation to assets"));
+    }
+  }
+  return { ready, lines };
+}
 
-  const fields = ((await shade.listFields(drive.id)) || [])
-    .filter((f) => !f.archived && !f.deleted && f.location === "custom");
+async function setupTracking(drive, fields, check) {
+  const lines = [];
+  const say = (state, what, note) => lines.push({ state, what, note });
+  let ready = true;
   const field = (name) => fields.find((f) => f.name === name);
 
-  /* ---- the Projects object: whatever "Projects Used In" points at, else
-   *      a type called Projects, else a new one. */
+  /* ---- the object: whatever "Projects Used In" points at, provided it is
+   *      "Premiere Projects"; else a type of that name; else a new one. A
+   *      bare "Projects" is never adopted -- it may be the customer's. */
   const projectsField = field(FIELD.projects);
   let type = null;
   if (projectsField) {
@@ -64,6 +112,12 @@ async function setup(drive, { check = false } = {}) {
       return { ready: false, lines };
     }
     type = await shade.getObjectType(drive.id, t.database_id);
+    if (type.name !== TYPE_NAME) {
+      say("CONFLICT", `field "${FIELD.projects}"`,
+          `already exists and points at "${type.name}", not "${TYPE_NAME}". If "${type.name}" is Shade ` +
+          `Tracker's, rename it to "${TYPE_NAME}" in Shade; if not, rename the field, then re-run`);
+      return { ready: false, lines };
+    }
     say("ok", `object "${type.name}"`, `the target of "${FIELD.projects}"`);
   } else {
     const types = (await shade.listObjectTypes(drive.id)) || [];
@@ -167,4 +221,4 @@ async function setup(drive, { check = false } = {}) {
   return { ready, lines };
 }
 
-module.exports = { setup };
+module.exports = { setup, TYPE_NAME, LINK_FIELDS };

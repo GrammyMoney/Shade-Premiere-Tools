@@ -50,6 +50,7 @@ const bridge = require(path.join(plugin, "bridge.js"));
 const dialog = require(path.join(plugin, "dialog.js"));
 const link = require(path.join(plugin, "link.js"));
 const projectpins = require(path.join(plugin, "projectpins.js"));
+const settings = require(path.join(plugin, "settings.js"));
 
 /* ------------------------------------------------------------ stubs */
 
@@ -58,7 +59,8 @@ shade.listFields = async () => [
   { id: "f-proxy", name: "Linked Proxy", location: "custom" },
   { id: "f-hires", name: "Linked Hi Res", location: "custom" }
 ];
-shade.assetByPath = async (driveId, p) => ({
+let lookups = 0;
+shade.assetByPath = async (driveId, p) => (lookups++, {
   id: "asset:" + p,
   custom_metadata: p.endsWith("/" + HIRES) ? { "f-proxy": [{ entity_type: "asset", id: "the-proxy" }] } : {}
 });
@@ -127,6 +129,10 @@ async function main() {
     clipItem("4", "/Users/editor/Desktop/local.mov")
   );
 
+  // Linking is off by default since the Settings tab; the steps below are
+  // about linking and pinning together, then each switch on its own.
+  await settings.set("linking", true);
+
   console.log("\n1. project opens: one pin question");
   link.seed(ppro);
   console.log("  -> " + await projectpins.offerPin(ppro));
@@ -154,7 +160,7 @@ async function main() {
   await projectpins.onClosed({ id: project.guid, name: project.name, path: project.path });
   assert.equal(questions.length, 2);
   console.log("  dialog: " + questions[1].heading + "\n          " + questions[1].lines.join("\n          "));
-  assert.match(questions[1].heading, /unpin the project "Pins Harness"/);
+  assert.match(questions[1].heading, /[Uu]npin the project "Pins Harness"/);
   assert.equal(sent.unpin.length, 1);
   assert.equal(sent.unpin[0].length, 1);
 
@@ -162,6 +168,23 @@ async function main() {
   answer = false;
   console.log("  -> " + await projectpins.offerPin(ppro, { always: true }));
   assert.equal(sent.pin.length, 2);
+
+  console.log("\n6. linking off: a new clip is pinned with no Shade lookup");
+  await settings.set("linking", false);
+  const before = lookups;
+  items.push(clipItem("6", at(HIRES)));
+  await link.onImport(ppro);
+  assert.equal(lookups, before, "no Shade request with linking off");
+  assert.equal(sent.pin.length, 3);
+  assert.equal(items[items.length - 1].attached.length, 0, "nothing attached with linking off");
+
+  console.log("\n7. auto-pinning off too: nothing pinned, nothing asked");
+  await settings.set("autoPin", false);
+  items.push(clipItem("7", at(ATTACHED)));
+  await link.onImport(ppro);
+  assert.equal(sent.pin.length, 3);
+  console.log("  -> " + await projectpins.offerPin(ppro, { always: true }));
+  assert.equal(questions.length, 3);
 
   console.log(`\nok: pins sent ${JSON.stringify(sent.pin.map((x) => x.length))}, unpins ${JSON.stringify(sent.unpin.map((x) => x.length))} (captured, not sent)`);
 }

@@ -14,6 +14,7 @@
 const { log } = require("./log.js");
 const { scanProject } = require("./scan.js");
 const sync = require("./sync.js");
+const settings = require("./settings.js");
 
 const DEBOUNCE_MS = 3000;
 
@@ -43,6 +44,7 @@ const RETRIES = 6;
 
 let ppro = null;
 let onProjectSeen = null;
+let onNeedsSetup = null;     // (driveId): media on a drive without the fields
 let hasKey = async () => false;
 let timer = null;
 let running = false;
@@ -66,6 +68,7 @@ const state = {
 function init(pproModule, opts = {}) {
   ppro = pproModule;
   onProjectSeen = opts.onProjectSeen || null;
+  onNeedsSetup = opts.onNeedsSetup || null;
   hasKey = opts.hasKey || hasKey;
 }
 
@@ -99,6 +102,11 @@ async function run(reason) {
   if (!ppro) return;
   running = true;
   try {
+    // Off: no scan, no Shade request. Switching it on asks for a pass.
+    if (!settings.get("tracking")) {
+      state.lastError = null;
+      return;
+    }
     if (!(await hasKey())) {
       state.lastError = "no API key";
       return;
@@ -120,6 +128,7 @@ async function run(reason) {
     state.lastRunAt = Date.now();
     state.lastError = summary.problems.length ? summary.problems[0] : null;
     state.runs++;
+    if (onNeedsSetup) for (const d of summary.needsSetup) onNeedsSetup(d);
 
     if (summary.retry && retries < RETRIES) {
       retries++;
@@ -133,7 +142,8 @@ async function run(reason) {
       const note = scan.guid + ":" + summary.status;
       if (note !== lastStatus) {
         lastStatus = note;
-        log(`not tracking "${scan.name}": ${NOT_TRACKED[summary.status]}`);
+        log(`not tracking "${scan.name}": ${NOT_TRACKED[summary.status]}` +
+            (summary.problems.length ? ` -- ${summary.problems.join("; ")}` : ""));
       }
       return;
     }

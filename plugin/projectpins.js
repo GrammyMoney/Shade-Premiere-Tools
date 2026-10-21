@@ -32,6 +32,7 @@ const { log } = require("./log.js");
 const shade = require("./shade.js");
 const shadefs = require("./shadefs.js");
 const dialog = require("./dialog.js");
+const settings = require("./settings.js");
 const link = require("./link.js");
 const { safe, clips, activeProject } = require("./walk.js");
 const { locate, shadePath, localPath } = require("./mounts.js");
@@ -40,6 +41,7 @@ const { projectDisplayName } = require("./paths.js");
 
 const LOOKUPS_AT_ONCE = 6;     // Shade REST requests in flight while counting
 const OPEN_SETTLE_MS = 1500;   // let Premiere finish opening before walking
+const OFF = "auto-pinning is off (Settings)";
 
 /*
  * guid -> { name, path, files: Map(local path -> { path, ino, size, mount, rest }) }
@@ -131,6 +133,7 @@ async function gather(ppro) {
  * Returns a short message for the panel.
  */
 async function offerPin(ppro, { always = false } = {}) {
+  if (!settings.get("autoPin")) return OFF;
   if (busy) return "busy";
   busy = true;
   try {
@@ -157,7 +160,9 @@ async function offerPin(ppro, { always = false } = {}) {
         `Already pinned: ${t.pinned.count} (${formatBytes(t.pinned.bytes)})  ·  ` +
           `Not pinned: ${t.unpinned.count} (${formatBytes(t.unpinned.bytes)})`,
         "Would you like to pin these?"
-      ]
+      ],
+      yes: "Pin",
+      no: "Not Now"
     });
     if (!yes) {
       log(`"${g.name}": pin declined (${t.unpinned.count} not pinned)`);
@@ -199,8 +204,13 @@ async function offerUnpin(guid, p) {
 
   const t = tally(self.map((f) => ({ pinned: true, size: f.size })));
   const yes = await dialog.confirm({
-    heading: `Would you like to unpin the project "${p.name}"?`,
-    lines: [`Pinned assets: ${t.count} (${formatBytes(t.bytes)})`]
+    heading: `Unpin the project "${p.name}"?`,
+    lines: [
+      `Pinned assets: ${t.count} (${formatBytes(t.bytes)})`,
+      "They will no longer be kept on this Mac for offline use."
+    ],
+    yes: "Unpin",
+    no: "Keep Pinned"
   });
   if (!yes) {
     log(`"${p.name}": unpin declined`);
@@ -216,6 +226,7 @@ async function offerUnpin(guid, p) {
 
 /* The panel's "unpin project": the active project, walked fresh. */
 async function unpinActive(ppro) {
+  if (!settings.get("autoPin")) return OFF;
   const g = await gather(ppro);
   if (!g) return "no project open";
   remember(g, g.files);
@@ -238,6 +249,7 @@ async function onClosed(event) {
   }
   const p = projects.get(guid);
   projects.delete(guid);
+  if (!settings.get("autoPin")) return;
   try {
     await offerUnpin(guid, p);
   } catch (err) {

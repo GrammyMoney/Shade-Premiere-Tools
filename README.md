@@ -1,27 +1,24 @@
 # Shade Tracker
 
-A Premiere Pro panel (UXP) that reports which Shade assets each Premiere
-project has imported and used, directly into Shade's metadata:
+A Premiere Pro panel (UXP) for media on mounted Shade drives. Three
+features, each switched on or off in the panel's **Settings** tab:
 
-- **Imported?** — the asset is in at least one project
-- **Used?** — the asset is on a timeline in at least one project (never unset)
-- **Projects Used In** — links to a **Projects** custom-object record per
-  Premiere project (linked on import)
+| Feature | Default | What it does |
+|---|---|---|
+| **Auto-pinning** | on | Offers to pin a project's Shade media when you open it (how many files, how much data, what's already pinned), offers to unpin it when you close it, and pins clips as you import them. **pin project** / **unpin project** ask on demand. |
+| **Project tracking** | off | Writes into Shade's metadata: **Imported?** (in at least one project), **Used?** (on a timeline; never unset), and **Projects Used In**, a link to the project's record in the **Premiere Projects** object. |
+| **Proxy linking** | off | A clip whose `Linked Proxy` is set gets that proxy attached on import; a proxy imported alone gets its `Linked Hi Res` attached. |
 
-No local service: the plugin talks to `api.shade.inc` with your own API key.
-Only media on a mounted Shade drive (`/Volumes/<drive name>/...`) is tracked.
+Auto-pinning needs Shade Desktop running; tracking and linking also need
+your Shade API key (Settings tab). Premiere doesn't let plugins act when it
+quits, so quitting doesn't ask to unpin.
 
-With Shade Desktop running, it also:
-
-- **links proxies on import.** A clip whose `Linked Proxy` is set gets that
-  proxy attached, and a proxy dragged in alone gets its `Linked Hi Res`
-  attached. Both files are pinned.
-- **offers to pin a project's media when you open it.** It shows how many
-  files and how much data, what's already pinned and what isn't, and pins
-  only if you say yes. **pin project** in the panel asks again.
-- **offers to unpin a project when you close it** (with Premiere still
-  open), or any time with **unpin project** in the panel. Premiere doesn't
-  let plugins act when it quits, so quitting doesn't ask.
+**Switching tracking or linking on checks the open project's drive** for
+the fields that feature uses. If any are missing, a dialog lists exactly
+what it will add and asks first: the fields are visible to everyone on the
+drive, and Shade can archive a field but not delete it. Say no and the
+feature stays off. Adding fields needs an account that can; otherwise a
+drive owner does it once.
 
 This replaces **Shade Linker**. Uninstall it, so clips aren't handled twice.
 
@@ -42,22 +39,23 @@ instead. Don't have both at once: they share a plugin id.
 ## Setup
 
 1. Install the panel (above).
-2. In Premiere: **Window → UXP Plugins → Shade Tracker**, paste your API key
-   (Shade → Settings → My account → API keys), **save**.
-3. Edit as usual. The first time you work with clips from a drive that
-   isn't set up, the panel says so and offers **set up drive**: one click
-   shows what it will add, a second adds it. Needs an account that can add
-   fields to the drive; otherwise a drive owner does it once.
+2. In Premiere: **Window → UXP Plugins → Shade Tracker**, then **Settings**.
+3. For tracking or linking: paste your API key (Shade → Settings → My
+   account → API keys), **save**, and tick the feature with a project on
+   the drive open. If the drive needs fields, you're asked first.
 
 A drive can also be prepared from Terminal (safe to re-run; `--check` only
 reports):
 ```
 node cli/shade-tracker.js key
-node cli/shade-tracker.js setup --drive "Drive Name"
+node cli/shade-tracker.js setup --drive "Drive Name"             # tracking
+node cli/shade-tracker.js setup --drive "Drive Name" --linking   # proxy linking
 ```
-Either way it creates the **Projects** object (`Project GUID`, `Project
-File`) and the asset fields `Imported?`, `Used?`, `Project Media`, and a
-two-way `Projects Used In` that gives Projects an **Assets** column.
+Tracking creates the **Premiere Projects** object (`Project GUID`,
+`Project File`) and the asset fields `Imported?`, `Used?`, `Project Media`,
+and a two-way `Projects Used In` that gives Premiere Projects an **Assets**
+column. A drive's own object called "Projects" is never used. Linking
+creates `Linked Proxy` and `Linked Hi Res`, one-way relations to assets.
 
 ## Without the panel: the CLI
 

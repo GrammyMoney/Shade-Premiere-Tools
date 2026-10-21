@@ -62,15 +62,18 @@
   .act:hover { border-color: #6a6a66; }
   .act:active { background-color: #181818; }
 
-  /* Shown only when a drive lacks the fields. Amber: needs a decision, not
-     broken. */
-  .setup {
-    border: 1px solid #6b5a2a; border-radius: 6px; padding: 8px;
-    margin-bottom: 12px; background-color: rgba(240, 190, 70, 0.06);
+  /* Status | Settings. Styled divs: UXP ignores <button> styling. */
+  .tabs { display: flex; margin-bottom: 12px; }
+  .tab {
+    flex: none; color: #8a8a86; padding: 2px 0; margin-right: 14px;
+    border-bottom: 1px solid #121212;
   }
-  .setup .msg { color: #e8c66a; margin-bottom: 8px; }
-  .setup .list { color: #8a8a86; margin-bottom: 8px; }
-  .setup .act.go { border-color: #8a7433; }
+  .tab:hover { color: #e8e6e1; }
+  .tab.on { color: #e8e6e1; border-bottom: 1px solid #e8e6e1; }
+
+  .setting { margin-bottom: 12px; }
+  .setting .about { color: #8a8a86; margin-left: 24px; }
+  .section { color: #8a8a86; margin-top: 4px; margin-bottom: 8px; }
 
   .link { color: #8a8a86; margin-top: 10px; }
   .link:hover { color: #e8e6e1; }
@@ -85,43 +88,65 @@
 
 <div class="rule"></div>
 
-<div class="keyrow" id="keyrow" style="display: none;">
-  <input type="password" id="key" placeholder="sk_… API key" />
-  <div class="act solo" id="savekey">save</div>
+<div class="tabs">
+  <div class="tab on" id="tab-status">Status</div>
+  <div class="tab" id="tab-settings">Settings</div>
 </div>
 
-<div class="setup" id="setup" style="display: none;">
-  <div class="msg" id="setupmsg"></div>
-  <div class="list" id="setuplist"></div>
+<div id="view-status">
+  <div class="stats">
+    <div id="g-tracking">
+      <div class="stat"><div class="k">project</div><div class="v" id="n-project">—</div></div>
+      <div class="stat"><div class="k">files in project</div><div class="v" id="n-files">—</div></div>
+      <div class="stat"><div class="k">on Shade</div><div class="v" id="n-shade">—</div></div>
+      <div class="stat"><div class="k">on a timeline</div><div class="v" id="n-used">—</div></div>
+      <div class="stat"><div class="k">written last sync</div><div class="v" id="n-written">—</div></div>
+    </div>
+    <div class="stat" id="g-linking"><div class="k">proxies linked</div><div class="v" id="n-linked">—</div></div>
+    <div class="stat" id="g-autopin"><div class="k">files pinned</div><div class="v" id="n-pinned">—</div></div>
+  </div>
+
+  <div class="meta" id="meta"></div>
+
   <div class="actions">
-    <div class="act" id="setupcancel" style="display: none;">cancel</div>
-    <div class="act go" id="setupgo">set up drive</div>
+    <div class="act" id="logs">get logs</div>
+    <div class="act" id="sync">sync now</div>
+  </div>
+
+  <div class="actions" id="pinactions" style="margin-top: 6px;">
+    <div class="act" id="pinproject">pin project</div>
+    <div class="act" id="unpinproject">unpin project</div>
   </div>
 </div>
 
-<div class="stats">
-  <div class="stat"><div class="k">project</div><div class="v" id="n-project">—</div></div>
-  <div class="stat"><div class="k">files in project</div><div class="v" id="n-files">—</div></div>
-  <div class="stat"><div class="k">on Shade</div><div class="v" id="n-shade">—</div></div>
-  <div class="stat"><div class="k">on a timeline</div><div class="v" id="n-used">—</div></div>
-  <div class="stat"><div class="k">written last sync</div><div class="v" id="n-written">—</div></div>
-  <div class="stat"><div class="k">proxies linked</div><div class="v" id="n-linked">—</div></div>
-  <div class="stat"><div class="k">files pinned</div><div class="v" id="n-pinned">—</div></div>
+<!--
+  Turning tracking or linking on checks the active project's drive and asks
+  before adding fields (enable.js). sp-checkbox, not a switch: sp-switch is
+  not among UXP's built-in Spectrum widgets as far as we know.
+-->
+<div id="view-settings" style="display: none;">
+  <div class="setting">
+    <sp-checkbox id="set-autoPin">Auto-pinning</sp-checkbox>
+    <div class="about">Offer to pin a project's Shade media when it opens, unpin it when it closes, and pin clips as they are imported.</div>
+  </div>
+  <div class="setting">
+    <sp-checkbox id="set-tracking">Project tracking</sp-checkbox>
+    <div class="about">Mark Shade assets Imported? / Used? and link them to this project's record in Premiere Projects.</div>
+  </div>
+  <div class="setting">
+    <sp-checkbox id="set-linking">Proxy linking</sp-checkbox>
+    <div class="about">Attach a clip's Linked Proxy (or Linked Hi Res) in Premiere when it is imported.</div>
+  </div>
+
+  <div class="rule"></div>
+  <div class="section">Shade API key</div>
+  <div class="keyrow" id="keyrow" style="display: none;">
+    <input type="password" id="key" placeholder="sk_… API key" />
+    <div class="act solo" id="savekey">save</div>
+  </div>
+  <div class="link" id="changekey" style="display: none;">change API key</div>
 </div>
 
-<div class="meta" id="meta"></div>
-
-<div class="actions">
-  <div class="act" id="logs">get logs</div>
-  <div class="act" id="sync">sync now</div>
-</div>
-
-<div class="actions" style="margin-top: 6px;">
-  <div class="act" id="pinproject">pin project</div>
-  <div class="act" id="unpinproject">unpin project</div>
-</div>
-
-<div class="link" id="changekey" style="display: none;">change API key</div>
 <div class="note" id="note"></div>
 
 <script src="main.js"></script>

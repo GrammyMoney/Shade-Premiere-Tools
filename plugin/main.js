@@ -4,7 +4,8 @@
  * Module scope runs at Premiere launch, with no panel open (proven in
  * premiere-events: an installed plugin loaded at launch and ran 10+ hours,
  * and kept running after its panel was closed). So the panel is a status
- * window and the place to enter the API key -- nothing else depends on it.
+ * window, the Settings tab (which features run: settings.js) and the place
+ * to enter the API key -- nothing else depends on it being open.
  * Its create/show/hide/destroy hooks say nothing about visibility and are
  * not used to decide anything.
  */
@@ -13,17 +14,18 @@
  * Requires are guarded and reported. A require that throws at module scope
  * aborts the file silently: no log, no panel, nothing to debug against.
  */
-let log, attach, recent, dataFolderPath, shade, resolve, sync, setupDrive, tracker, link, projectpins, uxp, entrypoints;
+let log, attach, recent, dataFolderPath, shade, resolve, sync, settings, enable, tracker, link, projectpins, uxp, entrypoints;
 let loadError = null;
 try {
   ({ log, attach, recent, dataFolderPath } = require("./log.js"));
   shade = require("./shade.js");
   resolve = require("./resolve.js");
   sync = require("./sync.js");
-  ({ setup: setupDrive } = require("./setup.js"));
+  settings = require("./settings.js");
   tracker = require("./tracker.js");
   link = require("./link.js");
   projectpins = require("./projectpins.js");
+  enable = require("./enable.js");
   uxp = require("uxp");
   ({ entrypoints } = uxp);
 } catch (e) {
@@ -96,13 +98,15 @@ function wireGlobalEvents() {
   const SE = C.SequenceEvent || {};
   const OE = C.OperationCompleteEvent || {};
 
-  // Opening a project seeds linking (what is already there is left alone)
-  // and asks once whether to pin its Shade media.
+  // Opening a project seeds linking (what is already there is left alone),
+  // asks once whether to pin its Shade media, and checks its drive for the
+  // fields of whatever features are on. Each is a no-op when switched off.
   const onOpened = () => {
     bindDirtyToActiveProject();
     tracker.requestNow("project_opened");
     link.seed(ppro);
     projectpins.offerSoon(ppro);
+    enable.onProjectOpened();
   };
 
   const wire = (label, name, handler) => {
@@ -162,25 +166,35 @@ async function boot() {
   if (!ppro) return;
 
   shade.setKeyProvider(getKey);
+  await settings.load();
   // Files pinned on import belong to their project, so its unpin covers them.
   link.setOnPinned(projectpins.remember);
+  // Shade Desktop knows which drive it mounted where; tracking asks it before
+  // matching volume names, which go stale when a drive is renamed.
+  resolve.setMountSource(() => require("./shadefs.js").mounts());
 
   // Every run reports which project it saw, so a switch that arrived without
   // an OPENED event still moves DIRTY to the right project.
   tracker.init(ppro, {
     hasKey: async () => !!(await getKey()),
-    onProjectSeen: (guid) => { if (guid !== dirtyBoundTo) bindDirtyToActiveProject(); }
+    onProjectSeen: (guid) => { if (guid !== dirtyBoundTo) bindDirtyToActiveProject(); },
+    onNeedsSetup: (driveId) => enable.onNeedsSetup("tracking", driveId)
   });
+  link.setOnNeedsSetup((driveId) => enable.onNeedsSetup("linking", driveId));
+  enable.init(ppro, { hasKey: async () => !!(await getKey()) });
 
   wireGlobalEvents();
   await bindDirtyToActiveProject();
 
-  if (!(await getKey())) log("no API key yet: open the Shade Tracker panel to add one");
+  if (!(await getKey()) && (settings.get("tracking") || settings.get("linking"))) {
+    log("no API key yet: add one in the Shade Tracker panel's Settings tab");
+  }
   // Whatever is already open is unknown until it is scanned, and there will
   // be no DIRTY until someone touches it.
   tracker.requestNow("startup");
   link.seed(ppro);
   projectpins.offerSoon(ppro);
+  enable.onProjectOpened();
 }
 
 /* ------------------------------------------------------------------ panel */
@@ -194,17 +208,9 @@ let shownWhy = null;         // the not-tracking reason currently in the note
 // second and vanished).
 let editingKey = false;
 
-/*
- * Setting up a drive is two clicks: the first shows exactly what will be
- * created, the second creates it. Not silent, because it adds fields and an
- * object every user of that drive will see, and Shade can only archive a
- * field, never delete one -- a drive set up by mistake stays cluttered.
- * Setting it up is still one decision away for anyone with the panel, which
- * is what makes the panel work on a fresh drive without the CLI.
- */
-let setupPlan = null;        // { driveId, name } once the first click has looked
-let setupBusy = false;       // a check or create is in flight; don't redraw over it
-let setupDoneAtRun = null;   // hide the prompt until a pass after setup has run
+const FEATURES = ["autoPin", "tracking", "linking"];
+const FEATURE_LABEL = { autoPin: "auto-pinning", tracking: "project tracking", linking: "proxy linking" };
+let toggling = false;         // a switch-on check is in flight; don't redraw the boxes
 
 function wirePanel() {
   if (wired) return;
@@ -231,25 +237,36 @@ function wirePanel() {
   async function render() {
     const st = tracker.status();
     const key = await getKey();
+    const on = settings.get();
     $("keyrow").style.display = !key || editingKey ? "flex" : "none";
     $("changekey").style.display = key ? "block" : "none";
     set("changekey", editingKey ? "cancel" : "change API key");
+    if (!toggling) for (const f of FEATURES) $("set-" + f).checked = !!on[f];
 
-    const needs = (st.lastSummary && st.lastSummary.needsSetup) || [];
-    renderSetup(needs);
+    // Only what is switched on is shown. Pinning needs no key; tracking
+    // and linking do.
+    const show = (id, yes, how) => { $(id).style.display = yes ? (how || "block") : "none"; };
+    show("g-tracking", on.tracking);
+    show("g-linking", on.linking, "flex");
+    show("g-autopin", on.autoPin, "flex");
+    show("sync", on.tracking);
+    show("pinactions", on.autoPin, "flex");
 
+    const needs = on.tracking ? ((st.lastSummary && st.lastSummary.needsSetup) || []) : [];
     let bad = null;
     if (!ppro) bad = "premierepro unavailable";
-    else if (!key) bad = "add your Shade API key";
-    else if (needs.length) bad = "drive needs setup";
-    else if (st.lastError) bad = st.lastError;
+    else if (!key && (on.tracking || on.linking)) bad = "add your Shade API key in Settings";
+    else if (needs.length) bad = `"${resolve.driveName(needs[0])}" isn't set up`;
+    else if (on.tracking && st.lastError) bad = st.lastError;
+    else if (on.linking && link.status().lastError) bad = link.status().lastError;
 
     // Not tracking a local project is correct behaviour, not a fault: the
     // lamp stays green and the reason is shown in place of "tracking".
-    const skip = st.lastSummary && st.lastSummary.status !== "tracked" && st.lastSummary.status;
+    const skip = on.tracking && st.lastSummary && st.lastSummary.status !== "tracked" && st.lastSummary.status;
     lamp.className = "lamp " + (bad ? "bad" : "ok");
-    set("state", bad || (st.running ? "syncing…" : skip ? "not tracking" : "tracking"),
-        "state" + (bad ? " bad" : ""));
+    const idle = on.tracking ? (skip ? "not tracking" : "tracking")
+               : (on.linking || on.autoPin) ? "on" : "all features off";
+    set("state", bad || (st.running ? "syncing…" : idle), "state" + (bad ? " bad" : ""));
     // Shown in the note line, but never over a message from a button.
     const noteEl = $("note");
     const why = !bad && skip ? tracker.notTrackedText(skip) : null;
@@ -281,84 +298,42 @@ function wirePanel() {
     }
   }
 
-  function renderSetup(needs) {
-    const box = $("setup");
-    if (setupBusy) return;
-    if (setupDoneAtRun !== null && tracker.status().runs === setupDoneAtRun) needs = [];
-    if (!needs.length) { box.style.display = "none"; setupPlan = null; return; }
-    box.style.display = "block";
-    const driveId = setupPlan ? setupPlan.driveId : needs[0];
-    const name = resolve.driveName(driveId);
-    if (!setupPlan) {
-      set("setupmsg", `"${name}" isn't set up for tracking yet.`);
-      set("setuplist", "Your clips are on this drive, but it doesn't have the Shade Tracker fields.");
-      set("setupgo", "set up drive");
-      $("setupcancel").style.display = "none";
-    }
-  }
-
   const on = (id, fn) => {
     const el = $(id);
     if (el) el.onclick = () => Promise.resolve().then(fn).catch((e) => note(e.message));
   };
 
-  on("setupgo", async () => {
-    const needs = (tracker.status().lastSummary || {}).needsSetup || [];
-    const driveId = setupPlan ? setupPlan.driveId : needs[0];
-    if (!driveId) return;
-    const drive = { id: driveId, name: resolve.driveName(driveId) };
-    const label = (l) => `${l.what}${l.note ? " (" + l.note + ")" : ""}`;
-
-    setupBusy = true;
-    try {
-      if (!setupPlan) {
-        // First click: look, don't touch.
-        set("setupgo", "checking…");
-        const { lines } = await setupDrive(drive, { check: true });
-        const todo = lines.filter((l) => l.state === "missing");
-        const conflicts = lines.filter((l) => l.state === "CONFLICT");
-        if (conflicts.length) {
-          set("setupmsg", `"${drive.name}" has fields in the way:`);
-          set("setuplist", conflicts.map(label).join(" · ") + ". Rename or remove them in Shade, then sync again.");
-          set("setupgo", "set up drive");
-          return;
-        }
-        setupPlan = { driveId, name: drive.name };
-        set("setupmsg", `Add to "${drive.name}", for everyone on the drive:`);
-        set("setuplist", todo.map(label).join(" · "));
-        set("setupgo", "create fields");
-        $("setupcancel").style.display = "block";
-        return;
-      }
-      // Second click: create.
-      set("setupgo", "creating…");
-      const { ready, lines } = await setupDrive(drive);
-      const made = lines.filter((l) => l.state === "created").length;
-      log(`set up "${drive.name}": ${made} item(s) created` + (ready ? "" : ", NOT ready"));
-      setupPlan = null;
-      setupDoneAtRun = tracker.status().runs;
-      $("setup").style.display = "none";
-      sync.forget();                 // new field ids
-      note(ready ? `"${drive.name}" is set up. Tracking starts now.` : "setup did not finish; see the log");
-      tracker.requestNow("setup");
-    } catch (e) {
-      setupPlan = null;
-      set("setupgo", "set up drive");
-      $("setupcancel").style.display = "none";
-      // Creating fields needs rights on the drive that an editor may not
-      // have. Say who can fix it rather than showing a status code.
-      note(e.status === 403 || e.status === 401
-        ? `Your Shade account can't add fields to "${drive.name}". Ask a drive owner to open this panel and set it up, or run shade-tracker setup.`
-        : `setup failed: ${e.message}`);
-    } finally {
-      setupBusy = false;
+  // Tabs.
+  const showTab = (name) => {
+    for (const t of ["status", "settings"]) {
+      $("tab-" + t).className = "tab" + (t === name ? " on" : "");
+      $("view-" + t).style.display = t === name ? "block" : "none";
     }
-  });
+  };
+  on("tab-status", () => showTab("status"));
+  on("tab-settings", () => showTab("settings"));
 
-  on("setupcancel", () => {
-    setupPlan = null;
-    renderSetup((tracker.status().lastSummary || {}).needsSetup || []);
-  });
+  // Feature switches. Turning tracking or linking on checks the active
+  // project's drive first and may ask to add fields (enable.js); it can
+  // come back off, and the note says why.
+  for (const f of FEATURES) {
+    // A property, not addEventListener: the panel can be wired again after
+    // destroy(), and a second listener would run every switch twice.
+    $("set-" + f).onchange = (e) => {
+      const want = !!(e.target && e.target.checked);
+      toggling = true;
+      Promise.resolve()
+        .then(async () => {
+          await settings.set(f, want);
+          if (!want) return note(`${FEATURE_LABEL[f]} is off`);
+          if (f === "autoPin") return note("auto-pinning is on");
+          note("checking the drive…");
+          note(await enable.switchOn(f));
+        })
+        .catch((err) => note(err.message))
+        .then(() => { toggling = false; render(); });
+    };
+  }
 
   on("savekey", async () => {
     const input = $("key");
