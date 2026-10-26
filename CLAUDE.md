@@ -496,7 +496,10 @@ in the log, in Shade and in the project's auto-save:
 - **Exports column** on Premiere Projects: one-way relation to assets, one
   entry per timeline (its newest version; `versions.mergeExports` swaps it
   in place). Created by tracking setup; skipped, with a note, when tracking
-  is off.
+  is off. **That is the only part of Export that needs tracking**: render,
+  wait, stack, the timeline link and version timelines all run with it off
+  (`test/export.test.js` runs a whole export that way, Premiere and Shade
+  faked, and fails if sync is touched).
 - **Import comments** (`comments.js`): each version's comments → markers on
   that version's timeline only (see Version timelines). Unresolved, top-level, timed comments only;
   replies folded into the text; name `<author> (Shade)`; purple, set in a
@@ -826,6 +829,7 @@ plugin/                the UXP plugin. Manifest v5, flat, no build step.
   markers-plan.js      which comments become markers; duplicates. Pure, tested
   seqlink.js           timeline <-> export stack, in the sequence's XMP. XML part tested
   snapshot.js          version timelines: copy at export into "Shade Versions", link to the version
+                       (test/export.test.js: a whole export, faked, with tracking off)
   projectpins.js       ask to pin a project on open; ask to unpin on close / button
   dialog.js            yes/no modal (uxpShowModal), one at a time
   shadefs.js           this Mac's Shade: mounts, inode+size, pin list, pin/unpin
