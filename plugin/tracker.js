@@ -45,6 +45,7 @@ const RETRIES = 6;
 let ppro = null;
 let onProjectSeen = null;
 let onNeedsSetup = null;     // (driveId): media on a drive without the fields
+let onOtherDrives = null;    // ({ driveId: files }, scan): Shade media not tracked
 let hasKey = async () => false;
 let timer = null;
 let running = false;
@@ -69,6 +70,7 @@ function init(pproModule, opts = {}) {
   ppro = pproModule;
   onProjectSeen = opts.onProjectSeen || null;
   onNeedsSetup = opts.onNeedsSetup || null;
+  onOtherDrives = opts.onOtherDrives || null;
   hasKey = opts.hasKey || hasKey;
 }
 
@@ -129,6 +131,10 @@ async function run(reason) {
     state.lastError = summary.problems.length ? summary.problems[0] : null;
     state.runs++;
     if (onNeedsSetup) for (const d of summary.needsSetup) onNeedsSetup(d);
+    const others = Object.values(summary.otherDrives || {}).reduce((a, n) => a + n, 0);
+    if (others && onOtherDrives) {
+      try { onOtherDrives(summary.otherDrives, scan); } catch (e) { /* never break a run */ }
+    }
 
     if (summary.retry && retries < RETRIES) {
       retries++;
@@ -151,7 +157,9 @@ async function run(reason) {
 
     log(`sync (${reason}) "${scan.name}": ${scan.timing.files} files, ` +
         `${summary.onShade} on Shade, ${summary.written} written` + sync.describeChanges(summary) + ", " +
-        `${summary.skipped} not on Shade, walk ${scan.timing.ms}ms` +
+        `${summary.skipped} not on Shade` +
+        (others ? `, ${others} on another Shade drive (not tracked)` : "") +
+        `, walk ${scan.timing.ms}ms` +
         (summary.retry ? `, Shade not caught up yet (retry ${retries}/${RETRIES})` : "") +
         (summary.problems.length ? ` -- ${summary.problems.join("; ")}` : ""));
   } catch (e) {

@@ -204,6 +204,8 @@ async function runDrive(drive, cliState, { full }) {
           (s.status !== "tracked" ? `, not tracked (${s.status})` : "") +
           (s.retry ? ", Shade not caught up yet" : "") +
           (s.needsSetup.length ? ", drive not set up: run shade-tracker setup" : "") +
+          (Object.keys(s.otherDrives).length
+            ? `, ${Object.values(s.otherDrives).reduce((a, n) => a + n, 0)} on another drive (not tracked)` : "") +
           (s.problems.length ? ` -- ${s.problems.join("; ")}` : ""));
       for (const p of parsed) if (p.project.guid === group.guid) ds.seen[p.entry.id] = p.entry.updated;
     } catch (e) {

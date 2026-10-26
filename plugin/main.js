@@ -178,7 +178,8 @@ async function boot() {
   tracker.init(ppro, {
     hasKey: async () => !!(await getKey()),
     onProjectSeen: (guid) => { if (guid !== dirtyBoundTo) bindDirtyToActiveProject(); },
-    onNeedsSetup: (driveId) => enable.onNeedsSetup("tracking", driveId)
+    onNeedsSetup: (driveId) => enable.onNeedsSetup("tracking", driveId),
+    onOtherDrives: (others, scan) => enable.warnOtherDrives(others, scan)
   });
   link.setOnNeedsSetup((driveId) => enable.onNeedsSetup("linking", driveId));
   enable.init(ppro, { hasKey: async () => !!(await getKey()) });

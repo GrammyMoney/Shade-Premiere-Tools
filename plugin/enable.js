@@ -18,12 +18,17 @@
  *
  * Nothing is remembered between sessions: a drive set up since is simply
  * found ready, and a declined one is asked about again next launch.
+ *
+ * Tracking covers only the drive a project is saved on (decided
+ * 2026-10-20). Shade clips from other drives are left untracked, and the
+ * editor is told so once per session (warnOtherDrives), not on every pass.
  */
 
 const { log } = require("./log.js");
 const settings = require("./settings.js");
 const { setup } = require("./setup.js");
 const resolve = require("./resolve.js");
+const { splitVolume } = require("./paths.js");
 const dialog = require("./dialog.js");
 const sync = require("./sync.js");
 const link = require("./link.js");
@@ -31,6 +36,7 @@ const tracker = require("./tracker.js");
 
 const LABEL = { tracking: "project tracking", linking: "proxy linking" };
 
+let warnedOtherDrives = false;
 const ready = new Set();      // "<feature>:<driveId>" known to have its fields
 const asked = new Set();      // "<feature>:<driveId>" asked about this session
 let ppro = null;
@@ -172,4 +178,29 @@ function onNeedsSetup(feature, driveId) {
     .catch((e) => log(`checking "${drive.name}": ${e.message}`));
 }
 
-module.exports = { init, switchOn, onProjectOpened, onNeedsSetup, LABEL };
+/*
+ * A tracking pass found Shade clips on drives other than the project's.
+ * Warn once per session; every sync line in the log still counts them.
+ */
+function warnOtherDrives(others, scan) {
+  const files = Object.values(others).reduce((a, n) => a + n, 0);
+  const drives = Object.keys(others).map((id) => `"${resolve.driveName(id)}"`).join(", ");
+  const project = (scan.name || "this project").replace(/\.prproj$/i, "");
+  if (warnedOtherDrives) return;
+  warnedOtherDrives = true;
+  log(`"${project}": ${files} clip(s) on ${drives} not tracked (other drive); warned`);
+
+  const v = splitVolume(scan.path || "");
+  const homeId = v && resolve.driveForVolume(v.root);
+  const home = homeId ? `"${resolve.driveName(homeId)}"` : "the drive it is saved on";
+  dialog.notify({
+    heading: "Clips from another drive can't be tracked",
+    lines: [
+      `${files} clip${files === 1 ? "" : "s"} in "${project}" ${files === 1 ? "is" : "are"} on ${drives}.`,
+      `Project tracking only covers media on ${home}, the drive this project is saved on.`,
+      "Proxy linking and pinning are not affected."
+    ]
+  }).catch((e) => log(`could not show the other-drive warning: ${e.message}`));
+}
+
+module.exports = { init, switchOn, onProjectOpened, onNeedsSetup, warnOtherDrives, LABEL };

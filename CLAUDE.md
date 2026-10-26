@@ -318,9 +318,16 @@ nothing that can disagree with itself.
   Shade's UI doesn't break anything. The field and column names are the
   contract: `Imported?`, `Used?`, `Projects Used In`, `Project GUID`,
   `Project File`.
-- **A project spanning two Shade drives gets a record on each.** Custom
-  objects are per drive, and an asset can only link to its own drive's
-  records.
+- **Only the drive the project is saved on is tracked.** (Decided
+  2026-10-20, replacing "a record on each drive".) Shade clips from any
+  other drive get no record, no field writes and no setup prompt there;
+  `sync` counts them in `summary.otherDrives` and costs one lookup per
+  unproven volume, then nothing. The panel warns once per session ("Clips
+  from another drive can't be tracked", `enable.warnOtherDrives`), and every
+  sync log line counts them. Custom objects are per drive and relations
+  can't cross drives, so a second record would only ever hold part of the
+  project. Linking and pinning still handle those clips. Records already
+  made on other drives are left alone (never unset).
 - **The API key is the user's own and stays in `uxp.storage.secureStorage`.**
   It has every permission its owner has, so it never goes in the repo, a log
   line or a plain file.

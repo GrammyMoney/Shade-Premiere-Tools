@@ -13,9 +13,11 @@
  *     syncDrive()     per drive: schema, project record, asset writes,
  *                     Project Media
  *
- * Custom objects are per drive, so a project whose media spans two Shade
- * drives gets a Projects record on each. Each drive's assets can only link
- * to that drive's records.
+ * Only the drive the .prproj is saved on is tracked (decided 2026-10-20).
+ * Custom objects are per drive and relations cannot cross drives, so Shade
+ * clips from any other drive are skipped -- no record, no fields, no setup
+ * prompt there -- and counted in summary.otherDrives so the panel can say
+ * so once.
  *
  * Everything remembered here lasts one session (one Premiere launch, or one
  * CLI run). Nothing is saved: the first pass after a launch re-checks every
@@ -260,26 +262,28 @@ function homeDrive(scan) {
 }
 
 /*
- * Which files are Shade assets, grouped by drive. A file this session has
- * already written, and that has not since been put on a timeline, is
- * skipped without a request -- a DIRTY during ordinary editing usually ends
- * here with nothing to do.
+ * Which of the project's files are Shade assets on its own drive. A file
+ * this session has already written, and that has not since been put on a
+ * timeline, is skipped without a request -- a DIRTY during ordinary editing
+ * usually ends here with nothing to do.
+ *
+ * A file on another Shade drive is counted in summary.otherDrives and left
+ * alone. Its volume is proven once (one lookup); after that it costs
+ * nothing per pass.
  */
-async function resolveFiles(scan, summary) {
-  const byDrive = new Map();
-  const prior = new Map();
-
-  // Drives this project already has a record on are always visited, so a
-  // rename or a newly indexed .prproj is picked up without waiting for an
-  // asset to change. (Measured: a renamed project kept its old name.)
-  for (const [key, done] of written) {
-    if (!key.endsWith(":" + scan.guid)) continue;
-    byDrive.set(key.slice(0, -(scan.guid.length + 1)), []);
-    for (const [p, w] of done) prior.set(p, w);
-  }
+async function resolveFiles(scan, summary, home) {
+  const entries = [];
+  const done = written.get(keyOf(home, scan.guid)) || new Map();
+  const other = (driveId) => {
+    summary.otherDrives[driveId] = (summary.otherDrives[driveId] || 0) + 1;
+  };
 
   for (const f of scan.files) {
-    const prev = prior.get(f.mediaPath);
+    const v = splitVolume(f.mediaPath);
+    const known = v && driveForVolume(v.root);
+    if (known && known !== home) { other(known); continue; }
+
+    const prev = done.get(f.mediaPath);
     if (prev) summary.onShade++;
     if (!needsWork(prev, f.used)) continue;
 
@@ -290,13 +294,13 @@ async function resolveFiles(scan, summary) {
       summary.problems.push(e.message);
       continue;
     }
+    if (r.driveId && r.driveId !== home) { other(r.driveId); continue; }
     if (r.status === "missing") summary.retry = true;     // on Shade, not indexed yet
     if (r.status !== "found") { summary.skipped++; continue; }
     if (!prev) summary.onShade++;
-    if (!byDrive.has(r.driveId)) byDrive.set(r.driveId, []);
-    byDrive.get(r.driveId).push({ file: f, asset: r.asset });
+    entries.push({ file: f, asset: r.asset });
   }
-  return byDrive;
+  return entries;
 }
 
 /* One drive: schema, record, asset writes, Project Media. */
@@ -358,12 +362,14 @@ async function syncDrive(driveId, entries, scan, summary) {
  *   retry     Shade has not caught up yet -- a file or the .prproj not
  *             indexed, or a volume not proven. Worth another pass soon.
  *   needsSetup  drive ids whose fields are missing (see setup.js)
+ *   otherDrives { driveId: files }: Shade clips on drives other than the
+ *             project's, which are not tracked
  *   problems  messages worth showing
  */
 async function run(scan) {
   const summary = { status: "tracked", onShade: 0, written: 0, skipped: 0,
                     changes: { imported: 0, used: 0, linked: 0 }, retry: false,
-                    needsSetup: [], problems: [] };
+                    needsSetup: [], otherDrives: {}, problems: [] };
 
   summary.status = await projectHome(scan, summary);
   if (summary.status !== "tracked") {
@@ -371,16 +377,16 @@ async function run(scan) {
     return summary;
   }
 
-  // The project's own drive goes first, and always: its record is created
-  // as soon as the project is known to be on Shade, before any asset is
-  // written, and even while it holds no Shade media yet.
-  const found = await resolveFiles(scan, summary);
+  // Only the project's own drive, and always: its record is created as
+  // soon as the project is known to be on Shade, before any asset is
+  // written, and even while it holds no Shade media yet. Visiting it on
+  // every pass also picks up a rename or a newly indexed .prproj without
+  // waiting for an asset to change. (Measured: a renamed project kept its
+  // old name.)
   const home = homeDrive(scan);
-  const byDrive = new Map();
-  if (home) byDrive.set(home, found.get(home) || []);
-  for (const [driveId, entries] of found) if (driveId !== home) byDrive.set(driveId, entries);
-
-  for (const [driveId, entries] of byDrive) await syncDrive(driveId, entries, scan, summary);
+  if (!home) return summary;
+  const entries = await resolveFiles(scan, summary, home);
+  await syncDrive(home, entries, scan, summary);
   return summary;
 }
 

@@ -13,6 +13,9 @@ Auto-pinning needs Shade Desktop running; tracking and linking also need
 your Shade API key (Settings tab). Premiere doesn't let plugins act when it
 quits, so quitting doesn't ask to unpin.
 
+Project tracking only covers media on the drive the project is saved on.
+Shade clips from another drive aren't tracked, and the panel says so once.
+
 **Switching tracking or linking on checks the open project's drive** for
 the fields that feature uses. If any are missing, a dialog lists exactly
 what it will add and asks first: the fields are visible to everyone on the
