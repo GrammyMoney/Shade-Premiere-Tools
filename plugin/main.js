@@ -14,7 +14,7 @@
  * Requires are guarded and reported. A require that throws at module scope
  * aborts the file silently: no log, no panel, nothing to debug against.
  */
-let log, attach, recent, dataFolderPath, shade, resolve, sync, settings, enable, tracker, link, projectpins, uxp, entrypoints;
+let log, attach, recent, dataFolderPath, shade, resolve, sync, settings, enable, tracker, link, projectpins, exporter, comments, uxp, entrypoints;
 let loadError = null;
 try {
   ({ log, attach, recent, dataFolderPath } = require("./log.js"));
@@ -26,6 +26,8 @@ try {
   link = require("./link.js");
   projectpins = require("./projectpins.js");
   enable = require("./enable.js");
+  exporter = require("./export.js");
+  comments = require("./comments.js");
   uxp = require("uxp");
   ({ entrypoints } = uxp);
 } catch (e) {
@@ -183,6 +185,10 @@ async function boot() {
   });
   link.setOnNeedsSetup((driveId) => enable.onNeedsSetup("linking", driveId));
   enable.init(ppro, { hasKey: async () => !!(await getKey()) });
+  exporter.init(ppro, { hasKey: async () => !!(await getKey()) });
+  comments.init(ppro, { hasKey: async () => !!(await getKey()) });
+  // Shade comments on clips just imported, after linking and pinning.
+  link.setOnAfterImport((clips) => comments.onImported(clips));
 
   wireGlobalEvents();
   await bindDirtyToActiveProject();
@@ -243,6 +249,12 @@ function wirePanel() {
     $("changekey").style.display = key ? "block" : "none";
     set("changekey", editingKey ? "cancel" : "change API key");
     if (!toggling) for (const f of FEATURES) $("set-" + f).checked = !!on[f];
+    renderPicker(on.sourceComments);
+
+    const ex = exporter.status();
+    $("export").className = "export" + (ex.busy ? " busy" : "");
+    set("export", ex.busy ? "Exporting…" : "Export to Shade");
+    if (ex.text) set("exportnote", ex.text);
 
     // Only what is switched on is shown. Pinning needs no key; tracking
     // and linking do.
@@ -363,6 +375,38 @@ function wirePanel() {
   on("pinproject", async () => {
     note("counting…");
     note(await projectpins.offerPin(ppro, { always: true }));
+  });
+
+  // The source-comments picker: select the item matching the setting.
+  function renderPicker(value) {
+    const picker = $("set-sourceComments");
+    if (!picker) return;
+    for (const item of picker.querySelectorAll("sp-menu-item")) {
+      if ((item.getAttribute("value") === value) !== item.hasAttribute("selected")) {
+        if (item.getAttribute("value") === value) item.setAttribute("selected", "");
+        else item.removeAttribute("selected");
+      }
+    }
+  }
+  const picker = $("set-sourceComments");
+  if (picker) picker.onchange = (e) => {
+    const t = e && e.target;
+    const value = (t && t.value) || (t && t.selectedIndex >= 0 && ["ask", "always", "never"][t.selectedIndex]);
+    settings.set("sourceComments", value)
+      .then(() => note(`comments on imported clips: ${value}`))
+      .catch((err) => note(err.message));
+  };
+
+  on("export", async () => {
+    if (exporter.status().busy) return;
+    note("");
+    note(await exporter.run());
+    render();
+  });
+
+  on("importcomments", async () => {
+    note("reading comments…");
+    note(await comments.importTimeline());
   });
 
   on("unpinproject", async () => {

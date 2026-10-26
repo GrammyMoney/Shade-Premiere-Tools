@@ -89,6 +89,7 @@ In the **Adobe Sandbox** drive for now
 | Premiere Projects column | `Project GUID` | str | `04b09d24-e3e6-48e4-a054-7635dff65936` | `Project.guid`: the identity key |
 | Premiere Projects column | `Project File` | relation → asset | `4a1a616a-7092-48b4-948f-0e5e8cfd6856` | the `.prproj`, which lives on the drive |
 | Premiere Projects column | `Assets` | paired to `Projects Used In` | `61d440fe-2644-4932-98fd-617678b24647` | **maintained by Shade**, never written by us |
+| Premiere Projects column | `Exports` | relation → asset | `84a687e0-3d93-4053-ba7d-fc0757ac3960` | newest export of each timeline; older versions are in its Shade stack. Written by Export only |
 | asset field | `Project Media` | relation → asset | `857a7a3e-ef1a-45bc-be0a-4ea8a91023d5` | on a `.prproj`: the Shade media in it. Optional. |
 
 Created 2026-09-29 through the Shade MCP and REST.
@@ -393,6 +394,122 @@ Design mounted:
   `Please specify at least one ino`.
 - Inodes from Node's `fs.stat` on the SMB mount match what pin/unpin act
   on (the four pins above were removed by Node-read inodes).
+
+## Export, version stacks and comments
+
+Added 2026-10-26. Plugin only.
+
+**First real run, 2026-10-26** ("DJI Test", timeline
+`2024_04_PANAMA_DAY5_DB_13`, folder `/EXPORTS` on Adobe Sandbox), verified
+in the log, in Shade and in the project's auto-save:
+- V01: rendered in 58 s (2m52s, 3840×2160, 23.976, 395 MB ≈ 18 Mb/s), in
+  Shade 26 s later. V02: rendered in 23 s (1m09s, 156 MB), in Shade 19 s
+  later, stacked as #2 on V01 (#1).
+- **The higher stack_number is the current version:** `/EXPORTS` lists only
+  V02, with V01 under it. So no `stack/move` is needed, and none is made.
+- The record's Exports showed V02 only (V01 swapped out). The sequence's
+  XMP held `ShadeTrackerExport{Version 2, Drive, Stack, Latest = V02}`.
+- Import comments: 4 comments on V01 → 4 markers at exactly their times
+  (3.667, 48.726, 86.909, 125.511 s; the last with its 12.11 s range),
+  named "Alex Bagheri (Shade)", purple. The second transaction's colour
+  took.
+- Not yet seen: the rendering panel's behaviour during an export, Finish
+  Linking after a timeout, the source-comments dialog, `sp-picker`.
+
+- **Export** (`export.js`, the purple button): active timeline → whole
+  sequence → Adobe's own `02 - Match Source - Low bitrate.epr` (H.264, source
+  size and rate), found in Premiere's install under
+  `MediaIO/systempresets/4E49434B_48323634/` (medium bitrate as fallback; no
+  `.epr` shipped). `exportSequence(seq, IMMEDIATELY, out, preset, true)`,
+  render events listened on the EncoderManager *instance*, and the promise +
+  a non-empty file as the fallback when no complete event comes. These are
+  the calls Shade's own Premiere plugin (`07be20ad`, read from its source
+  map) uses; its preset and folder choices are not copied.
+- **Saved to the project's Shade drive only** (decided 2026-10-26): the
+  folder picker must land on the drive the .prproj is on, else a dialog and
+  pick again. Shade Desktop uploads it; the plugin polls `GET /assets/path`
+  (3 s → 10 s, up to 20 min) until the asset exists at the local size. Out of
+  time is not a failure: the next Export on that timeline offers "Finish
+  Linking" instead of rendering again.
+- **Names:** `<Project>_<Timeline>_V01.mp4`, then the next number past the
+  highest found in the stored link and the target folder (`versions.js`,
+  pure). Gaps stay gaps; V100 follows V99.
+- **Stacks:** onto the previous version: `POST /assets/{new}/stack?
+  target_asset_id=<prev>` when it's already in a stack, else `POST
+  /assets/stack {asset_ids:[prev,new]}` (that's how V01+V02 was made).
+  Shade shows the highest stack_number as current, which is where a new
+  version lands. A refused stack doesn't fail the export.
+- **The timeline ↔ stack link lives in the .prproj** (decided 2026-10-26,
+  so nothing extra is added to Shade): private project metadata on the
+  sequence's project item, `ShadeTrackerExport{Drive,Latest,Stack,Version}`
+  (`seqlink.js`), written with `createSetProjectMetadataAction` in
+  `lockedAccess` + `executeTransaction`. It's saved with the editor's next
+  save. Without it (an older project), the newest version file in the
+  folder is the one stacked onto.
+- **Version timelines** (`snapshot.js`, decided 2026-10-26): every Export,
+  right after the render, copies the timeline as rendered into a root bin
+  **Shade Versions** as `<Timeline>_V03` (`Sequence.createCloneAction` in a
+  transaction; the copy is the sequence whose guid is new, then
+  `createSetNameAction` + `createMoveItemAction`). Its XMP gets drive,
+  version and `ShadeTrackerSnapshotOf` = the original's guid at once (the
+  copied link fields are cleared), and `latest`/`stack` = that version's
+  asset once Shade has it.
+  **Where comments go** (decided 2026-10-26, revised after testing the
+  same day): Import comments, pressed on any timeline of the line, fills
+  the **working timeline with its newest version's comments** and **each
+  version timeline with its own version's** (`snapshot.versionsOf`). A new
+  copy has its "(Shade)" markers removed right after cloning, and **Export
+  then clears the "(Shade)" markers from the working timeline**
+  (`snapshot.removeShadeMarkers`, one transaction), so it only ever shows
+  the current version's notes. Only the plugin's "(Shade)" markers are ever
+  removed; the editor's own stay (asked 2026-10-26: "Shade comment markers
+  only"). The frozen copy keeps everything else as a record.
+  **After an export, work carries on in the timeline just exported**
+  (decided 2026-10-26): `snapshot.focusWorking` closes every version
+  timeline of the same original (`Project.closeSequence`, 26.2+; the new
+  copy and older ones) and brings the exported timeline forward
+  (`openSequence` + `setActiveSequence`). The exported timeline *is* the
+  up-to-date working copy, so it isn't swapped for a new sequence: that
+  would break anything nesting it.
+
+  **Verified in Premiere, 2026-10-26** ("Testing 1234", timeline
+  `Como_GAT_Campbell_Video_446_001`, `/EXPORTS`): the clone action works in
+  a transaction; copies landed in Shade Versions as `…_V02`, `…_V03`, each
+  with its 2 copied "(Shade)" markers cleared; closeSequence closed 1, then
+  2 version timelines and the working timeline came back active; stack
+  V01→V02→V03 with V03 current; Exports = V03; Import comments put V03's 1
+  comment on the working timeline and the V03 copy and left V01/V02's
+  already-imported ones alone. Renders of the 11 s timeline took ~1 s;
+  Shade had each file 10-12 s later.
+  **Bug found and fixed:** the first export ran with the `…_V01` *version
+  timeline* active, and Export cleared V01's own comment markers and made
+  it the active timeline. Now the working timeline is always the original
+  (`targetOf().holder`): its markers are cleared and it's brought forward;
+  a version timeline's markers are never cleared. With the original
+  deleted, nothing is cleared.
+  **Exporting a version timeline continues the original's stack**: named for
+  the original, its link and Exports slot updated, plus a new copy. With the
+  original deleted: the copy's own link (same stack), its name minus
+  `_Vxx`, and no original to update. A copy that fails is logged and named
+  in the panel line; it never fails the export. *Unverified:* the clone
+  action itself (no working example found, only forum posts).
+- **Exports column** on Premiere Projects: one-way relation to assets, one
+  entry per timeline (its newest version; `versions.mergeExports` swaps it
+  in place). Created by tracking setup; skipped, with a note, when tracking
+  is off.
+- **Import comments** (`comments.js`): each version's comments → markers on
+  that version's timeline only (see Version timelines). Unresolved, top-level, timed comments only;
+  replies folded into the text; name `<author> (Shade)`; purple, set in a
+  second transaction (Shade's plugin does the same). No offset: an export
+  covers the whole sequence from 0. Re-import adds nothing: same text within
+  half a frame is already there (`markers-plan.js`, pure). The first run
+  (before this rule) put V01's 4 comments on the original timeline itself;
+  those markers predate it and were left for the editor to delete.
+- **Source comments** on import: after linking and pinning, the new Shade
+  clips' comments → clip markers (Source Monitor). Setting `sourceComments`
+  `ask` (default) | `always` | `never`; the dialog's "Do this every time"
+  sets the last two, and Settings has a picker. *Unverified:* clip-marker
+  time on media with a non-zero start timecode, and `sp-picker` in UXP.
 
 ## Panel and CLI
 
@@ -703,6 +820,12 @@ plugin/                the UXP plugin. Manifest v5, flat, no build step.
   settings.js          which features run (Settings tab); settings.json
   enable.js            switching a feature on: check the drive, ask, create
   link.js              new clip -> Linked Proxy/Hi Res -> attach -> pin (from Shade-Linker)
+  export.js            Export: render, wait for Shade, stack, link, Exports column
+  comments.js          Shade comments -> sequence markers (button) / clip markers (on import)
+  versions.js          export names, Vxx numbering, Exports merge. Pure, tested
+  markers-plan.js      which comments become markers; duplicates. Pure, tested
+  seqlink.js           timeline <-> export stack, in the sequence's XMP. XML part tested
+  snapshot.js          version timelines: copy at export into "Shade Versions", link to the version
   projectpins.js       ask to pin a project on open; ask to unpin on close / button
   dialog.js            yes/no modal (uxpShowModal), one at a time
   shadefs.js           this Mac's Shade: mounts, inode+size, pin list, pin/unpin

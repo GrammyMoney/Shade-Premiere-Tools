@@ -32,7 +32,7 @@ const { splitVolume, projectDisplayName } = require("./paths.js");
 
 const FIELD = { imported: "Imported?", used: "Used?", projects: "Projects Used In",
                 projectMedia: "Project Media" };
-const COLUMN = { guid: "Project GUID", file: "Project File" };
+const COLUMN = { guid: "Project GUID", file: "Project File", exports: "Exports" };
 const WRITE_BATCH = 50;
 
 /*
@@ -95,6 +95,7 @@ async function schemaFor(driveId) {
   const col = (name) => (type.columns || []).find((c) => c.column_name === name && !c.archive);
   const guid = col(COLUMN.guid);
   const file = col(COLUMN.file);
+  const exp = col(COLUMN.exports);
   if (!guid) {
     throw new MissingSchema(`"${type.name}" has no "${COLUMN.guid}" column; run shade-tracker setup`);
   }
@@ -109,7 +110,8 @@ async function schemaFor(driveId) {
     typeId: type.id,
     typeName: type.name,
     guidColumn: guid.id,
-    fileColumn: file && file.column_type === "relation" ? file.id : null
+    fileColumn: file && file.column_type === "relation" ? file.id : null,
+    exportsColumn: exp && exp.column_type === "relation" ? exp.id : null
   };
   schemas.set(driveId, { schema, at: Date.now() });
   return schema;
@@ -404,4 +406,4 @@ function forget() {
   written.clear();
 }
 
-module.exports = { run, forget, describeChanges, FIELD, COLUMN };
+module.exports = { run, forget, describeChanges, schemaFor, projectRecord, relationIdsOf, FIELD, COLUMN };

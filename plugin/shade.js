@@ -121,6 +121,30 @@ const putAssetValues = (driveId, updates) =>
     body: { drive_id: driveId, asset_ids_with_metadata_attributes: updates }
   });
 
+/* ------------------------------------------------------ stacks, comments */
+
+/*
+ * Version stacks (documented in Shade's assets API). A stack has no head
+ * flag: each asset carries stack_id and stack_number. Neither create nor
+ * add is idempotent, so neither is retried; export.js re-reads the asset
+ * before trying again.
+ */
+const createStack = (driveId, assetIds) =>
+  request("POST", "/assets/stack", { body: { drive_id: driveId, asset_ids: assetIds }, retry: false });
+
+/* Add `assetId` to the stack `targetAssetId` is in. Resolves its stack number. */
+const addToStack = (driveId, assetId, targetAssetId) =>
+  request("POST", `/assets/${assetId}/stack`,
+    { query: { drive_id: driveId, target_asset_id: targetAssetId }, retry: false });
+
+const moveInStack = (driveId, assetId, stackNumber) =>
+  request("PUT", `/assets/${assetId}/stack/move`,
+    { query: { drive_id: driveId, new_stack_number: stackNumber } });
+
+/* CommentDTO[]: content, author, timestamp (s), duration (s), resolved, replies. */
+const getComments = (driveId, assetId) =>
+  request("GET", `/assets/${assetId}/comments`, { query: { drive_id: driveId } });
+
 /*
  * One page of every file on a drive, newest change first. Used by the CLI to
  * find .prproj files. The search behind this is semantic -- a query for
@@ -210,6 +234,7 @@ module.exports = {
   ShadeError, setKeyProvider, request,
   listWorkspaces, listDrives,
   assetByPath, getAsset, putAssetValues, listFilesPage, downloadUrl,
+  createStack, addToStack, moveInStack, getComments,
   listFields, listObjectTypes, getObjectType, createObjectType, addObjectColumns, addAssetFields,
   listAllRecords, getRecord, createRecord, patchRecord
 };

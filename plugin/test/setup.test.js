@@ -40,6 +40,7 @@ test("a fresh drive gets \"Premiere Projects\", never a bare \"Projects\"", asyn
   assert.ok(ready);
   assert.deepStrictEqual(made.types, [TYPE_NAME]);
   assert.strictEqual(TYPE_NAME, "Premiere Projects");
+  assert.deepStrictEqual(made.columns, ["Project GUID", "Project File", "Exports"]);
   const two = made.fields.find((f) => f.column_name === "Projects Used In");
   assert.strictEqual(two.relation_config.target.database_id, "new-type");
   assert.strictEqual(two.relation_config.inverse.enabled, true);
@@ -61,6 +62,23 @@ test("Projects Used In pointing at another object is a conflict, and nothing is 
   const { ready, lines } = await setup(DRIVE, { feature: "tracking" });
   assert.strictEqual(ready, false);
   assert.ok(lines.some((l) => l.state === "CONFLICT" && /not "Premiere Projects"/.test(l.note)));
+  assert.deepStrictEqual(made, { types: [], columns: [], fields: [] });
+});
+
+test("a drive set up before Exports existed is asked for just that column", async () => {
+  const cols = [{ id: "c1", column_name: "Project GUID", column_type: "str" },
+                { id: "c2", column_name: "Project File", column_type: "relation",
+                  display_metadata: { relation_config: { target: { kind: "asset" } } } }];
+  const made = fakeDrive({
+    fields: [custom("Imported?", "bool"), custom("Used?", "bool"),
+             custom("Project Media", "relation", { kind: "asset" }),
+             custom("Projects Used In", "relation", { kind: "custom_object", database_id: "pp" })],
+    types: [{ id: "pp", name: TYPE_NAME, columns: cols }]
+  });
+  const { ready, lines } = await setup(DRIVE, { feature: "tracking", check: true });
+  assert.strictEqual(ready, false);
+  assert.deepStrictEqual(lines.filter((l) => l.state === "missing").map((l) => l.what),
+                         [`column "Exports" on ${TYPE_NAME}`]);
   assert.deepStrictEqual(made, { types: [], columns: [], fields: [] });
 });
 

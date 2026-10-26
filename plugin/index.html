@@ -75,6 +75,16 @@
   .setting .about { color: #8a8a86; margin-left: 24px; }
   .section { color: #8a8a86; margin-top: 4px; margin-bottom: 8px; }
 
+  /* Export: the one big action. Purple, full width. */
+  .export {
+    background-color: #7b3ff2; color: #ffffff; font-weight: bold; font-size: 13px;
+    text-align: center; border-radius: 6px; padding: 12px 8px; margin-bottom: 6px;
+  }
+  .export:hover { background-color: #8d57f5; }
+  .export:active { background-color: #6a30dc; }
+  .export.busy { background-color: #4b3178; color: #c9b8ee; }
+  .exportnote { color: #8a8a86; margin-bottom: 8px; min-height: 16px; word-wrap: break-word; }
+
   .link { color: #8a8a86; margin-top: 10px; }
   .link:hover { color: #e8e6e1; }
   .note { color: #8a8a86; margin-top: 10px; word-wrap: break-word; }
@@ -94,6 +104,12 @@
 </div>
 
 <div id="view-status">
+  <div class="export" id="export">Export to Shade</div>
+  <div class="exportnote" id="exportnote"></div>
+  <div class="actions" style="margin-bottom: 12px;">
+    <div class="act" id="importcomments">import comments</div>
+  </div>
+
   <div class="stats">
     <div id="g-tracking">
       <div class="stat"><div class="k">project</div><div class="v" id="n-project">—</div></div>
@@ -136,6 +152,17 @@
   <div class="setting">
     <sp-checkbox id="set-linking">Proxy linking</sp-checkbox>
     <div class="about">Attach a clip's Linked Proxy (or Linked Hi Res) in Premiere when it is imported.</div>
+  </div>
+  <div class="setting">
+    <div class="section">Shade comments on imported clips</div>
+    <sp-picker id="set-sourceComments" size="s" label="Source comments">
+      <sp-menu slot="options">
+        <sp-menu-item value="ask">Ask</sp-menu-item>
+        <sp-menu-item value="always">Always add as clip markers</sp-menu-item>
+        <sp-menu-item value="never">Never</sp-menu-item>
+      </sp-menu>
+    </sp-picker>
+    <div class="about" style="margin-left: 0;">Clip markers show in the Source Monitor. "Do this every time" in the dialog sets this too.</div>
   </div>
 
   <div class="rule"></div>

@@ -25,12 +25,20 @@ let chain = Promise.resolve();
  * Rejects only when no dialog could be shown at all.
  */
 function confirm(question) {
+  return ask(question).then((r) => r.yes);
+}
+
+/*
+ * Like confirm, with an optional checkbox ({ checkbox: "Do this every time" }).
+ * Resolves { yes, checked }.
+ */
+function ask(question) {
   const run = chain.then(() => show(question));
   chain = run.catch(() => {});
   return run;
 }
 
-async function show({ title = "Shade Tracker", heading, lines = [], yes = "Yes", no = "No" }) {
+async function show({ title = "Shade Tracker", heading, lines = [], yes = "Yes", no = "No", checkbox = null }) {
   if (typeof document === "undefined") throw new Error("no document to show a dialog in");
   const el = (tag, text, style) => {
     const e = document.createElement(tag);
@@ -47,6 +55,8 @@ async function show({ title = "Shade Tracker", heading, lines = [], yes = "Yes",
   divider.setAttribute("size", "large");
   form.appendChild(divider);
   for (const line of lines) form.appendChild(el("sp-body", line));
+  const box = checkbox ? el("sp-checkbox", checkbox, "margin-top: 12px;") : null;
+  if (box) form.appendChild(box);
 
   const footer = el("footer", null, "display: flex; justify-content: flex-end; margin-top: 20px;");
   if (no) {                  // no: null makes it a notice with one button
@@ -68,7 +78,7 @@ async function show({ title = "Shade Tracker", heading, lines = [], yes = "Yes",
     if (typeof dlg.uxpShowModal !== "function") throw new Error("uxpShowModal is not available here");
     // No size: the dialog fits its content, as Premiere's own do.
     const answer = await dlg.uxpShowModal({ title, resize: "none" });
-    return answer === "yes";
+    return { yes: answer === "yes", checked: !!(box && box.checked) };
   } finally {
     dlg.remove();
   }
@@ -79,4 +89,4 @@ function notify({ heading, lines = [] }) {
   return confirm({ heading, lines, yes: "OK", no: null }).then(() => undefined);
 }
 
-module.exports = { confirm, notify };
+module.exports = { confirm, ask, notify };

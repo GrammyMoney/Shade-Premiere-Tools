@@ -4,6 +4,9 @@
  *   autoPin   on   pin prompt on open, unpin prompt on close, pin new imports
  *   tracking  off  Imported?/Used?/Projects Used In and the project record
  *   linking   off  attach a clip's Linked Proxy / Linked Hi Res
+ *   sourceComments  "ask"  Shade comments on imported clips as clip
+ *                   markers: "ask" | "always" | "never" (the dialog's
+ *                   "Do this every time" sets the last two)
  *
  * (Defaults decided 2026-10-20.) Tracking and linking write fields every
  * user of a drive sees, so they are opted into, and switching one on checks
@@ -18,7 +21,13 @@ const { log } = require("./log.js");
 const { platform } = require("./platform.js");
 
 const FILE_NAME = "settings.json";
-const DEFAULTS = Object.freeze({ autoPin: true, tracking: false, linking: false });
+const DEFAULTS = Object.freeze({ autoPin: true, tracking: false, linking: false, sourceComments: "ask" });
+const CHOICES = { sourceComments: ["ask", "always", "never"] };
+
+/* A saved or requested value, if it is a valid one for this key. */
+function valid(key, v) {
+  return CHOICES[key] ? CHOICES[key].includes(v) : typeof v === "boolean";
+}
 
 let current = { ...DEFAULTS };
 const listeners = [];
@@ -28,14 +37,14 @@ function parse(text) {
   let saved = {};
   try { saved = JSON.parse(text || "{}") || {}; } catch (e) { saved = {}; }
   const out = { ...DEFAULTS };
-  for (const k of Object.keys(DEFAULTS)) if (typeof saved[k] === "boolean") out[k] = saved[k];
+  for (const k of Object.keys(DEFAULTS)) if (valid(k, saved[k])) out[k] = saved[k];
   return out;
 }
 
 async function load() {
   current = parse(await platform().readData(FILE_NAME).catch(() => null));
   log(`settings: auto-pinning ${onOff(current.autoPin)}, project tracking ${onOff(current.tracking)}, ` +
-      `proxy linking ${onOff(current.linking)}`);
+      `proxy linking ${onOff(current.linking)}, source comments ${current.sourceComments}`);
   return current;
 }
 
@@ -47,7 +56,8 @@ function get(key) {
 
 async function set(key, value) {
   if (!(key in DEFAULTS)) throw new Error(`no setting "${key}"`);
-  value = !!value;
+  if (!CHOICES[key]) value = !!value;
+  if (!valid(key, value)) throw new Error(`"${value}" is not a choice for ${key}`);
   if (current[key] === value) return;
   current = { ...current, [key]: value };
   await platform().writeData(FILE_NAME, JSON.stringify(current, null, 2)).catch((e) => {
@@ -60,4 +70,4 @@ async function set(key, value) {
 
 function onChange(fn) { listeners.push(fn); }
 
-module.exports = { DEFAULTS, parse, load, get, set, onChange };
+module.exports = { DEFAULTS, CHOICES, parse, load, get, set, onChange };

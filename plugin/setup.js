@@ -42,6 +42,7 @@ const DESCRIBE = {
   type: "Premiere Pro projects, one record per project. Maintained by Shade Tracker; matched on Project GUID, not name.",
   [COLUMN.guid]: "Premiere's project id. The identity key; survives renames.",
   [COLUMN.file]: "The .prproj on this drive.",
+  [COLUMN.exports]: "The newest export of each timeline in this project (V01, V02...: the older versions are in its Shade stack). Written by Shade Tracker's Export.",
   [FIELD.imported]: "In at least one Premiere project. Set by Shade Tracker; never unset.",
   [FIELD.used]: "On a timeline in at least one Premiere project. Set by Shade Tracker; never unset.",
   [FIELD.projects]: "Premiere projects this asset is in (linked on import). Two-way: mirrored as Assets on Projects.",
@@ -138,6 +139,8 @@ async function setupTracking(drive, fields, check) {
     const wanted = [
       { column_name: COLUMN.guid, column_type: "str", description: DESCRIBE[COLUMN.guid] },
       { column_name: COLUMN.file, column_type: "relation", description: DESCRIBE[COLUMN.file],
+        relation_config: { target: { kind: "asset" } } },
+      { column_name: COLUMN.exports, column_type: "relation", description: DESCRIBE[COLUMN.exports],
         relation_config: { target: { kind: "asset" } } }
     ];
     const toAdd = [];

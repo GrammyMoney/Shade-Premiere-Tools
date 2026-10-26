@@ -52,6 +52,7 @@ const fields = new Map();      // driveId -> { ids: { proxy, hiRes }, at }
 let queue = Promise.resolve();
 let onPinned = () => {};     // (project, [{ path, ino, size, mount, rest }])
 let onNeedsSetup = () => {}; // (driveId): linking is on, the drive lacks both fields
+let onAfterImport = () => {}; // ([{ clip, name, mount, rest, asset? }]): new Shade clips, after linking
 
 const stats = {
   linked: 0, pinned: 0, skipped: 0, failed: 0,
@@ -144,7 +145,8 @@ async function fieldIds(driveId) {
 }
 
 async function processAll(items) {
-  if (!settings.get("linking") && !settings.get("autoPin")) return;
+  // Source comments ride on this walk too (comments.js, via onAfterImport).
+  if (!settings.get("linking") && !settings.get("autoPin") && settings.get("sourceComments") === "never") return;
   let ms;
   try {
     ms = await mounts();
@@ -155,14 +157,21 @@ async function processAll(items) {
     return;
   }
   stats.lastError = null;
+  const shadeClips = [];
   for (const item of items) {
     try {
-      await processOne(item, ms);
+      const done = await processOne(item, ms);
+      if (done) shadeClips.push(done);
     } catch (e) {
       stats.failed++;
       stats.lastError = e.message;
       log(`${item.name}: ${e.message}`);
     }
+  }
+  // Not awaited: it may ask a question, and the next walk must not wait on it.
+  if (shadeClips.length) {
+    Promise.resolve().then(() => onAfterImport(shadeClips))
+      .catch((e) => log("after import:", e.message));
   }
 }
 
@@ -178,7 +187,7 @@ async function processOne(item, ms) {
   if (!settings.get("linking")) {
     waiting.delete(item.id);
     await pinOnly(item, path, mount);
-    return;
+    return { clip, name, mount, rest, asset: null };
   }
 
   const asset = await shade.assetByPath(mount.driveId, shadePath(mount.driveId, rest));
@@ -242,10 +251,12 @@ async function processOne(item, ms) {
 
   await addPin(path);
   await sendPins(item, pins);
+  return { clip, name, mount, rest, asset };
 }
 
 /* Auto-pinning alone: the clip and whatever proxy it already has. */
 async function pinOnly(item, path, mount) {
+  if (!settings.get("autoPin")) return;
   const pins = [];
   for (const p of [path, await safe(() => item.clip.getProxyPath(), null)]) {
     if (!p || !locate(p, [mount])) continue;
@@ -281,9 +292,10 @@ function status() { return Object.assign({}, stats); }
 
 function setOnPinned(fn) { onPinned = fn; }
 function setOnNeedsSetup(fn) { onNeedsSetup = fn; }
+function setOnAfterImport(fn) { onAfterImport = fn; }
 
 /* Field ids are re-read after setup creates them. */
 function forget() { fields.clear(); }
 
 module.exports = { seed, onImport, onDirty, status, fieldIds, getAssetOrNull, setOnPinned,
-                   setOnNeedsSetup, forget, FIELD_NAMES };
+                   setOnNeedsSetup, setOnAfterImport, forget, FIELD_NAMES };
