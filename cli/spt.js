@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /*
- * Shade Tracker CLI -- the same tracking as the Premiere panel, for editors
+ * Shade Premiere Tools CLI -- the same tracking as the Premiere panel, for editors
  * who don't have it, by reading saved .prproj files on a timer.
  *
- *   node cli/shade-tracker.js setup --drive "Adobe Sandbox" make a drive ready
- *   node cli/shade-tracker.js run --drive "Adobe Sandbox"   one pass
- *   node cli/shade-tracker.js key                           store the API key
- *   node cli/shade-tracker.js install --drive "..." [--every 15]
- *   node cli/shade-tracker.js uninstall
- *   node cli/shade-tracker.js status
+ *   node cli/spt.js setup --drive "Adobe Sandbox" make a drive ready
+ *   node cli/spt.js run --drive "Adobe Sandbox"   one pass
+ *   node cli/spt.js key                           store the API key
+ *   node cli/spt.js install --drive "..." [--every 15]
+ *   node cli/spt.js uninstall
+ *   node cli/spt.js status
  *
  * Harmony with the panel is not a protocol between them; it falls out of
  * both running the SAME sync code (plugin/sync.js) against the same Shade:
@@ -33,9 +33,10 @@ const path = require("path");
 const { execFileSync, spawnSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..");
-const DATA_DIR = path.join(os.homedir(), "Library", "Application Support", "Shade Tracker CLI");
-const KEYCHAIN = { service: "Shade Tracker", account: "shade-api-key" };
-const AGENT_LABEL = "com.grammymoney.shadetracker.cli";
+const DATA_DIR = path.join(os.homedir(), "Library", "Application Support", "Shade Premiere Tools CLI");
+const KEYCHAIN = { service: "Shade Premiere Tools", account: "shade-api-key" };
+const OLD_KEYCHAIN_SERVICE = "Shade Tracker";       // the name before 2026-10-26; read only
+const AGENT_LABEL = "com.grammymoney.spt.cli";
 const AGENT_PLIST = path.join(os.homedir(), "Library", "LaunchAgents", AGENT_LABEL + ".plist");
 const CLI_STATE = "cli.json";
 const LOCK = "run.lock";
@@ -85,13 +86,16 @@ const { isProjectFile, relPath, baseName, mergeByGuid } = require("./select.js")
  */
 function getKey() {
   if (process.env.SHADE_API_KEY) return process.env.SHADE_API_KEY.trim();
-  try {
-    return execFileSync("security",
-      ["find-generic-password", "-s", KEYCHAIN.service, "-a", KEYCHAIN.account, "-w"],
-      { stdio: ["ignore", "pipe", "ignore"] }).toString().trim() || null;
-  } catch (e) {
-    return null;
+  // A key saved before the rename is still found; `spt key` saves it anew.
+  for (const service of [KEYCHAIN.service, OLD_KEYCHAIN_SERVICE]) {
+    try {
+      const key = execFileSync("security",
+        ["find-generic-password", "-s", service, "-a", KEYCHAIN.account, "-w"],
+        { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+      if (key) return key;
+    } catch (e) { /* not under this name */ }
   }
+  return null;
 }
 
 /*
@@ -203,7 +207,7 @@ async function runDrive(drive, cliState, { full }) {
           `${s.written} written` + sync.describeChanges(s) + (group.copies > 1 ? `, ${group.copies} copies merged` : "") +
           (s.status !== "tracked" ? `, not tracked (${s.status})` : "") +
           (s.retry ? ", Shade not caught up yet" : "") +
-          (s.needsSetup.length ? ", drive not set up: run shade-tracker setup" : "") +
+          (s.needsSetup.length ? ", drive not set up: run spt setup" : "") +
           (Object.keys(s.otherDrives).length
             ? `, ${Object.values(s.otherDrives).reduce((a, n) => a + n, 0)} on another drive (not tracked)` : "") +
           (s.problems.length ? ` -- ${s.problems.join("; ")}` : ""));
@@ -238,7 +242,7 @@ async function cmdRun(args) {
   const drives = args.drive;
   if (!drives.length) throw new Error('say which drive(s): run --drive "Drive Name"');
   const key = getKey();
-  if (!key) throw new Error("no API key: run `shade-tracker key` first, or set SHADE_API_KEY");
+  if (!key) throw new Error("no API key: run `spt key` first, or set SHADE_API_KEY");
   shade.setKeyProvider(async () => key);
 
   if (!takeLock()) { log("another run is still going; skipping this one"); return; }
@@ -261,7 +265,7 @@ async function cmdRun(args) {
 async function cmdSetup(args) {
   if (args.drive.length !== 1) throw new Error('setup takes one drive: setup --drive "Drive Name"');
   const key = getKey();
-  if (!key) throw new Error("no API key: run `shade-tracker key` first, or set SHADE_API_KEY");
+  if (!key) throw new Error("no API key: run `spt key` first, or set SHADE_API_KEY");
   shade.setKeyProvider(async () => key);
 
   const [drive] = await findDrives(args.drive);
@@ -280,9 +284,9 @@ function xml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").
 
 function cmdInstall(args) {
   if (!args.drive.length) throw new Error('say which drive(s): install --drive "Drive Name"');
-  if (!getKey()) throw new Error("no API key in the Keychain: run `shade-tracker key` first");
+  if (!getKey()) throw new Error("no API key in the Keychain: run `spt key` first");
   const minutes = Math.max(1, Number(args.every || 15));
-  const argv = [process.execPath, path.join(__dirname, "shade-tracker.js"), "run"];
+  const argv = [process.execPath, path.join(__dirname, "spt.js"), "run"];
   for (const d of args.drive) argv.push("--drive", d);
 
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
@@ -308,7 +312,7 @@ ${argv.map((a) => `    <string>${xml(a)}</string>`).join("\n")}
   const r = spawnSync("launchctl", ["bootstrap", `gui/${uid}`, AGENT_PLIST], { stdio: "inherit" });
   if (r.status !== 0) throw new Error("launchctl bootstrap failed");
   console.log(`Installed: every ${minutes} min on ${args.drive.join(", ")}.`);
-  console.log(`Log: ${path.join(DATA_DIR, "shade-tracker.log")}`);
+  console.log(`Log: ${path.join(DATA_DIR, "shade-premiere-tools.log")}`);
 }
 
 function cmdUninstall() {
@@ -326,7 +330,7 @@ async function cmdStatus() {
     console.log(`drive ${id}: last change seen ${d.highWater || "never"}, ` +
                 `${Object.keys(d.seen).length} project file(s) read`);
   }
-  const logFile = path.join(DATA_DIR, "shade-tracker.log");
+  const logFile = path.join(DATA_DIR, "shade-premiere-tools.log");
   if (fs.existsSync(logFile)) {
     console.log("\nlast log lines:");
     console.log(fs.readFileSync(logFile, "utf8").trim().split("\n").slice(-8).join("\n"));
@@ -349,7 +353,7 @@ function parseArgs(argv) {
   return out;
 }
 
-const USAGE = `usage: shade-tracker <command>
+const USAGE = `usage: spt <command>
   setup --drive NAME|ID [--check]             create the fields tracking needs (or report)
   setup --drive NAME|ID --linking [--check]   the same for proxy linking (Linked Proxy/Hi Res)
   run --drive NAME|ID [--drive ...] [--full]   one pass over the drive(s)

@@ -79,7 +79,7 @@ async function addMarkers(project, owner, planned) {
         compound.addAction(markers.createAddMarkerAction(m.name, ppro.Marker.MARKER_TYPE_COMMENT,
           T.createWithSeconds(m.start), m.duration ? T.createWithSeconds(m.duration) : T.TIME_ZERO, m.text));
       }
-    }, "Shade Tracker: add comment markers");
+    }, "SPT: add comment markers");
   });
   if (ok === false) throw new Error("Premiere did not add the markers");
 
@@ -92,7 +92,7 @@ async function addMarkers(project, owner, planned) {
       project.lockedAccess(() => {
         project.executeTransaction((compound) => {
           for (const m of fresh) compound.addAction(m.createSetColorByIndexAction(PURPLE));
-        }, "Shade Tracker: colour comment markers");
+        }, "SPT: colour comment markers");
       });
     }
   } catch (e) {

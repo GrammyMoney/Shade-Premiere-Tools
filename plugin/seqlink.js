@@ -90,7 +90,7 @@ async function write(ppro, project, sequence, link) {
   project.lockedAccess(() => {
     ok = project.executeTransaction((compound) => {
       compound.addAction(ppro.Metadata.createSetProjectMetadataAction(item, xml, ALL));
-    }, "Shade Tracker: link export");
+    }, "SPT: link export");
   });
   if (ok === false) throw new Error("Premiere did not store the export link");
 }

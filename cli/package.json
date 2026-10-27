@@ -1,9 +1,9 @@
 {
-  "name": "shade-tracker-cli",
+  "name": "shade-premiere-tools-cli",
   "private": true,
   "version": "0.1.0",
   "description": "Tracks Shade assets in saved .prproj files, for editors without the Premiere panel.",
-  "bin": { "shade-tracker": "shade-tracker.js" },
+  "bin": { "spt": "spt.js" },
   "engines": { "node": ">=20" },
   "scripts": {
     "test": "node --test test/"

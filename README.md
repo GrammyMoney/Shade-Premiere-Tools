@@ -1,4 +1,4 @@
-# Shade Tracker
+# Shade Premiere Tools
 
 A Premiere Pro panel (UXP) for media on mounted Shade drives. Three
 features, each switched on or off in the panel's **Settings** tab:
@@ -32,7 +32,7 @@ This replaces **Shade Linker**. Uninstall it, so clips aren't handled twice.
 Build the installer, then double-click it (Creative Cloud installs it for
 Premiere; restart Premiere afterwards):
 ```
-./scripts/package-ccx.sh      # -> dist/com.grammymoney.shadetracker_premierepro.ccx
+./scripts/package-ccx.sh      # -> dist/com.grammymoney.shadepremieretools_premierepro.ccx
 ```
 The `.ccx` is what you hand to an editor. It is not signed or listed on
 Adobe Exchange, so Creative Cloud may warn that it is from an unknown
@@ -44,7 +44,7 @@ instead. Don't have both at once: they share a plugin id.
 ## Setup
 
 1. Install the panel (above).
-2. In Premiere: **Window → UXP Plugins → Shade Tracker**, then **Settings**.
+2. In Premiere: **Window → UXP Plugins → Shade Premiere Tools**, then **Settings**.
 3. For tracking or linking: paste your API key (Shade → Settings → My
    account → API keys), **save**, and tick the feature with a project on
    the drive open. If the drive needs fields, you're asked first.
@@ -52,9 +52,9 @@ instead. Don't have both at once: they share a plugin id.
 A drive can also be prepared from Terminal (safe to re-run; `--check` only
 reports):
 ```
-node cli/shade-tracker.js key
-node cli/shade-tracker.js setup --drive "Drive Name"             # tracking
-node cli/shade-tracker.js setup --drive "Drive Name" --linking   # proxy linking
+node cli/spt.js key
+node cli/spt.js setup --drive "Drive Name"             # tracking
+node cli/spt.js setup --drive "Drive Name" --linking   # proxy linking
 ```
 Tracking creates the **Premiere Projects** object (`Project GUID`,
 `Project File`) and the asset fields `Imported?`, `Used?`, `Project Media`,
@@ -70,15 +70,15 @@ sync code, so the two never duplicate or undo each other: the panel is live,
 the CLI catches up on the last save.
 
 ```
-node cli/shade-tracker.js run --drive "Adobe Sandbox"          # one pass
-node cli/shade-tracker.js install --drive "Adobe Sandbox"      # every 15 min (--every N)
-node cli/shade-tracker.js status
-node cli/shade-tracker.js uninstall
+node cli/spt.js run --drive "Adobe Sandbox"          # one pass
+node cli/spt.js install --drive "Adobe Sandbox"      # every 15 min (--every N)
+node cli/spt.js status
+node cli/spt.js uninstall
 ```
 
 Needs Node 20+; no mount required. Uses the key stored by `key` above. Its
 log lives in
-`~/Library/Application Support/Shade Tracker CLI/`.
+`~/Library/Application Support/Shade Premiere Tools CLI/`.
 
 ## Development
 

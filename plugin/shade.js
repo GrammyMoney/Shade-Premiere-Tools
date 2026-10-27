@@ -180,7 +180,7 @@ const getObjectType = (driveId, typeId) =>
   request("GET", `/workspaces/drives/${driveId}/custom-object-types/${typeId}`);
 
 /*
- * Creating schema. Used only by `shade-tracker setup` -- the panel and the
+ * Creating schema. Used only by `spt setup` -- the panel and the
  * sync never create fields. Not retried: a create that times out may have
  * landed, and setup re-checks what exists before trying again.
  *

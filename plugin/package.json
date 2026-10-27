@@ -1,5 +1,5 @@
 {
-  "name": "shade-tracker-plugin",
+  "name": "shade-premiere-tools-plugin",
   "private": true,
   "version": "0.1.0",
   "description": "UXP plugin: reports which Shade assets each Premiere project imported and used.",

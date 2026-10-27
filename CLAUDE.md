@@ -1,4 +1,4 @@
-# Shade Tracker — project context
+# Shade Premiere Tools — project context
 
 A Premiere Pro panel that reports which Shade assets each Premiere project
 has imported and used, written straight into Shade's own metadata. Read the
@@ -270,7 +270,7 @@ nothing that can disagree with itself.
     drive owner"): the toggle goes back off. A drive met later (another
     project, sync's `needsSetup`, link.js finding no link fields) gets the
     same dialog once per drive per session.
-  - **`shade-tracker setup --drive X`** from the CLI.
+  - **`spt setup --drive X`** from the CLI.
 
   Setup itself is idempotent, creates only what's absent, never
   modifies or removes, reports a same-named field of the wrong type as a
@@ -805,7 +805,7 @@ tools/harness.js       runs the plugin's sync under Node against REAL Shade,
                        GUID, clean up afterwards.
 .env                   SHADE_API_KEY=sk_... for the harness. Git-ignored.
 cli/                   the parser, for editors without the panel. Node >= 20, no deps.
-  shade-tracker.js     setup / run / key / install / uninstall / status
+  spt.js     setup / run / key / install / uninstall / status
   prproj.js            .prproj -> { guid, files }. Pure, tested.
   select.js            which files are projects; merging same-id copies. Pure, tested.
   test/                node --test
@@ -862,7 +862,21 @@ to re-enter it). The installed copy's data folder is under
 
 ## Working conventions
 
-- Repo: `github.com/GrammyMoney/Shade-Tracker` (private), branch `main`.
+- Repo: `github.com/GrammyMoney/Shade-Premiere-Tools` (private), branch
+  `main`.
+- **Renamed from "Shade Tracker" on 2026-10-26**, everywhere: repo (GitHub
+  redirects the old URL), plugin and panel name "Shade Premiere Tools",
+  panel title "SPT", plugin id `com.grammymoney.shadepremieretools` (was
+  `…shadetracker`), panel id `sptPanel`, CLI `cli/spt.js` / `spt`, its
+  LaunchAgent `com.grammymoney.spt.cli` and data folder "Shade Premiere Tools
+  CLI", log `shade-premiere-tools.log`, undo labels "SPT: …".
+  **Deliberately not renamed:** the `ShadeTrackerExport*` /
+  `ShadeTrackerSnapshotOf` fields stored in projects' XMP (renaming them
+  would orphan every existing export link), and field descriptions already
+  written into Shade (setup never edits what exists). The id change makes
+  Premiere see a new plugin: remove the old one in UDT / Creative Cloud,
+  re-enter the API key and re-tick Settings. The CLI still reads a key saved
+  under the old Keychain name "Shade Tracker".
 - Plain JS, no build step. `cd plugin && npm test` for the pure parts
   (`node --test test/*.test.js`: Node 24 rejects a bare directory);
   `tools/harness.js` for sync against real Shade; everything Premiere-side is

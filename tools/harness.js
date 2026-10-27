@@ -23,7 +23,7 @@ const path = require("path");
 const ROOT = path.resolve(__dirname, "..");
 const [scanFile, dataArg] = process.argv.slice(2);
 if (!scanFile) { console.error("usage: node tools/harness.js <scan.json> [state-dir]"); process.exit(2); }
-const DATA = dataArg || fs.mkdtempSync(path.join(os.tmpdir(), "shade-tracker-"));
+const DATA = dataArg || fs.mkdtempSync(path.join(os.tmpdir(), "spt-"));
 
 const file = (p) => ({
   read: async () => fs.readFileSync(p, "utf8"),

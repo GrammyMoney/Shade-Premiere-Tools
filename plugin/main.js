@@ -1,5 +1,5 @@
 /*
- * Shade Tracker -- plugin entry point.
+ * Shade Premiere Tools -- plugin entry point.
  *
  * Module scope runs at Premiere launch, with no panel open (proven in
  * premiere-events: an installed plugin loaded at launch and ran 10+ hours,
@@ -33,7 +33,7 @@ try {
 } catch (e) {
   loadError = e;
   // eslint-disable-next-line no-console
-  console.error("Shade Tracker failed to load a module:", e && (e.stack || e.message));
+  console.error("Shade Premiere Tools failed to load a module:", e && (e.stack || e.message));
 }
 
 let ppro = null;
@@ -163,7 +163,7 @@ async function bindDirtyToActiveProject() {
 
 async function boot() {
   if (loadError) return;
-  log(`Shade Tracker starting (premierepro: ${ppro ? "ok" : "UNAVAILABLE"})`);
+  log(`Shade Premiere Tools starting (premierepro: ${ppro ? "ok" : "UNAVAILABLE"})`);
   log("data folder:", await dataFolderPath());
   if (!ppro) return;
 
@@ -194,7 +194,7 @@ async function boot() {
   await bindDirtyToActiveProject();
 
   if (!(await getKey()) && (settings.get("tracking") || settings.get("linking"))) {
-    log("no API key yet: add one in the Shade Tracker panel's Settings tab");
+    log("no API key yet: add one in the Shade Premiere Tools panel's Settings tab");
   }
   // Whatever is already open is unknown until it is scanned, and there will
   // be no DIRTY until someone touches it.
@@ -430,7 +430,7 @@ function wirePanel() {
  */
 async function exportLog(text) {
   try {
-    const file = await uxp.storage.localFileSystem.getFileForSaving("shade-tracker.log", {
+    const file = await uxp.storage.localFileSystem.getFileForSaving("shade-premiere-tools.log", {
       types: ["log", "txt"]
     });
     if (!file) return "cancelled";
@@ -443,7 +443,7 @@ async function exportLog(text) {
 
 if (entrypoints) entrypoints.setup({
   panels: {
-    shadeTrackerPanel: {
+    sptPanel: {
       create() { wirePanel(); },
       show() { wirePanel(); },
       hide() {},

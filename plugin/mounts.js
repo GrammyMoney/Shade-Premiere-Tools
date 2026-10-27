@@ -9,7 +9,7 @@
  *   shade   /72454409-.../2025 Media/a.MP4                 what the REST API wants
  *
  * The mount root comes from Shade itself (status:mount over the desktop
- * bridge), never from guessing /Volumes/<drive name>. Shade-Tracker had to
+ * bridge), never from guessing /Volumes/<drive name>. Shade Premiere Tools had to
  * guess, because a panel cannot run `mount`, and it found a drive mounted
  * under a name that no longer matched the drive's display name. Asking the
  * daemon that made the mount removes the guess.
@@ -60,7 +60,7 @@ function driveIdFromUri(uri) {
  * Premiere may report a different spelling of the volume than the daemon),
  * and only at a segment boundary: "/Volumes/Shade 2" is not inside
  * "/Volumes/Shade". The rest keeps its exact spelling, because Shade's path
- * lookup is case-sensitive (measured in Shade-Tracker: a lower-cased path 404s).
+ * lookup is case-sensitive (measured in Shade Premiere Tools: a lower-cased path 404s).
  */
 function locate(localPath, mounts) {
   if (typeof localPath !== "string" || !Array.isArray(mounts)) return null;

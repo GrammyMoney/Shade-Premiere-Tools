@@ -1,6 +1,6 @@
 {
-  "id": "com.grammymoney.shadetracker",
-  "name": "Shade Tracker",
+  "id": "com.grammymoney.shadepremieretools",
+  "name": "Shade Premiere Tools",
   "version": "0.2.0",
   "main": "index.html",
   "manifestVersion": 5,
@@ -11,9 +11,9 @@
   "entrypoints": [
     {
       "type": "panel",
-      "id": "shadeTrackerPanel",
+      "id": "sptPanel",
       "label": {
-        "default": "Shade Tracker"
+        "default": "Shade Premiere Tools"
       },
       "minimumSize": { "width": 240, "height": 220 },
       "maximumSize": { "width": 2400, "height": 2400 },

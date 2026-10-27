@@ -1,5 +1,5 @@
 /*
- * Make a drive ready for Shade Tracker, or say what it lacks.
+ * Make a drive ready for Shade Premiere Tools, or say what it lacks.
  *
  * Per feature, because each Settings toggle needs its own fields:
  *   tracking  Imported?, Used?, Project Media, Projects Used In, and the
@@ -8,8 +8,8 @@
  *
  * Shared by the panel (switching a feature on checks, then asks in a
  * dialog before creating: enable.js) and the CLI:
- *   shade-tracker setup --drive "X" [--linking]          create what is missing
- *   shade-tracker setup --drive "X" [--linking] --check  report only; exit 1 if not ready
+ *   spt setup --drive "X" [--linking]          create what is missing
+ *   spt setup --drive "X" [--linking] --check  report only; exit 1 if not ready
  *
  * The object is "Premiere Projects", never a bare "Projects" (decided
  * 2026-10-20): a customer's drive may well have its own "Projects", and
@@ -37,16 +37,16 @@ const INVERSE_NAME = "Assets";
 const LINK_FIELDS = { proxy: "Linked Proxy", hiRes: "Linked Hi Res" };   // as link.js
 
 const DESCRIBE = {
-  [LINK_FIELDS.proxy]: "On a hi-res file: its proxy. Shade Tracker attaches it in Premiere on import.",
-  [LINK_FIELDS.hiRes]: "On a proxy: its hi-res file. Shade Tracker attaches it in Premiere on import.",
-  type: "Premiere Pro projects, one record per project. Maintained by Shade Tracker; matched on Project GUID, not name.",
+  [LINK_FIELDS.proxy]: "On a hi-res file: its proxy. Shade Premiere Tools attaches it in Premiere on import.",
+  [LINK_FIELDS.hiRes]: "On a proxy: its hi-res file. Shade Premiere Tools attaches it in Premiere on import.",
+  type: "Premiere Pro projects, one record per project. Maintained by Shade Premiere Tools; matched on Project GUID, not name.",
   [COLUMN.guid]: "Premiere's project id. The identity key; survives renames.",
   [COLUMN.file]: "The .prproj on this drive.",
-  [COLUMN.exports]: "The newest export of each timeline in this project (V01, V02...: the older versions are in its Shade stack). Written by Shade Tracker's Export.",
-  [FIELD.imported]: "In at least one Premiere project. Set by Shade Tracker; never unset.",
-  [FIELD.used]: "On a timeline in at least one Premiere project. Set by Shade Tracker; never unset.",
+  [COLUMN.exports]: "The newest export of each timeline in this project (V01, V02...: the older versions are in its Shade stack). Written by Export in Shade Premiere Tools.",
+  [FIELD.imported]: "In at least one Premiere project. Set by Shade Premiere Tools; never unset.",
+  [FIELD.used]: "On a timeline in at least one Premiere project. Set by Shade Premiere Tools; never unset.",
   [FIELD.projects]: "Premiere projects this asset is in (linked on import). Two-way: mirrored as Assets on Projects.",
-  [FIELD.projectMedia]: "On a .prproj: the Shade media in that project. Written by Shade Tracker after each save."
+  [FIELD.projectMedia]: "On a .prproj: the Shade media in that project. Written by Shade Premiere Tools after each save."
 };
 
 const targetOf = (f) => (f && f.relation_config && f.relation_config.target) || null;

@@ -114,7 +114,7 @@ async function ensure(feature, drive, { force = false } = {}) {
     await dialog.notify({
       heading: denied ? `You can't add fields to "${drive.name}"` : `Setting up "${drive.name}" failed`,
       lines: [denied
-        ? "Ask a drive owner to turn this on in their Shade Tracker panel, or to run shade-tracker setup."
+        ? "Ask a drive owner to turn this on in their Shade Premiere Tools panel, or to run spt setup."
         : e.message]
     });
     return false;

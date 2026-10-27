@@ -65,7 +65,7 @@ class MissingSchema extends Error {}
  * drive. The Projects object is found by following "Projects Used In" to its
  * target, so renaming the object in Shade's UI does not break us.
  *
- * Missing fields are reported, not created here: `shade-tracker setup`
+ * Missing fields are reported, not created here: `spt setup`
  * creates them, when a person decides to.
  */
 async function schemaFor(driveId) {
@@ -88,7 +88,7 @@ async function schemaFor(driveId) {
     missing.push(`"${FIELD.projects}" (relation to a custom object)`);
   }
   if (missing.length) {
-    throw new MissingSchema(`drive is missing ${missing.join(", ")}; run shade-tracker setup`);
+    throw new MissingSchema(`drive is missing ${missing.join(", ")}; run spt setup`);
   }
 
   const type = await shade.getObjectType(driveId, target.database_id);
@@ -97,7 +97,7 @@ async function schemaFor(driveId) {
   const file = col(COLUMN.file);
   const exp = col(COLUMN.exports);
   if (!guid) {
-    throw new MissingSchema(`"${type.name}" has no "${COLUMN.guid}" column; run shade-tracker setup`);
+    throw new MissingSchema(`"${type.name}" has no "${COLUMN.guid}" column; run spt setup`);
   }
 
   // Optional: Project Media on the .prproj, as a relation to assets.

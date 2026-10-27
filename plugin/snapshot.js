@@ -64,7 +64,7 @@ async function versionsBin(ppro, project, root) {
   };
   const found = await find();
   if (found) return found;
-  transact(project, "Shade Tracker: add Shade Versions bin", (c) => c.addAction(root.createBinAction(BIN, false)));
+  transact(project, "SPT: add Shade Versions bin", (c) => c.addAction(root.createBinAction(BIN, false)));
   const made = await find();
   if (!made) throw new Error(`couldn't make the "${BIN}" bin`);
   return made;
@@ -75,7 +75,7 @@ async function removeShadeMarkers(ppro, project, sequence) {
   const markers = await ppro.Markers.getMarkers(sequence);
   const ours = (markers.getMarkers() || []).filter((m) => isOurs({ name: m.getName() }));
   if (!ours.length) return 0;
-  transact(project, "Shade Tracker: clear copied comment markers", (c) => {
+  transact(project, "SPT: clear copied comment markers", (c) => {
     for (const m of ours) c.addAction(markers.createRemoveMarkerAction(m));
   });
   return ours.length;
@@ -103,7 +103,7 @@ async function versionsOf(ppro, project, originalGuid) {
  */
 async function make(ppro, project, sequence, { name, version, driveId, originalGuid }) {
   const before = await guids(project);
-  transact(project, "Shade Tracker: copy timeline", (c) => c.addAction(sequence.createCloneAction()));
+  transact(project, "SPT: copy timeline", (c) => c.addAction(sequence.createCloneAction()));
   const copy = (await project.getSequences()).find((s) => !before.has(String(s.guid)));
   if (!copy) throw new Error("Premiere made no copy of the timeline");
 
@@ -115,7 +115,7 @@ async function make(ppro, project, sequence, { name, version, driveId, originalG
   const item = await copy.getProjectItem();
   const root = await rootOf(ppro, project);
   const bin = await versionsBin(ppro, project, root);
-  transact(project, "Shade Tracker: file version timeline", (c) => {
+  transact(project, "SPT: file version timeline", (c) => {
     c.addAction(item.createSetNameAction(name));
     c.addAction(root.createMoveItemAction(item, bin));
   });
