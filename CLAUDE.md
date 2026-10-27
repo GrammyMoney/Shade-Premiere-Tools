@@ -618,6 +618,60 @@ URL for markdown. `?ask=<question>` on a docs URL queries their search.
 - The official SDK is Python only and hasn't been updated since February
   2025. It doesn't cover custom objects.
 
+## Automations API (documented)
+
+Found 2026-10-26 at `academy.shade.inc/developers/automate/automations.md`
+(newer than `docs/shade-endpoints.txt`, which doesn't list it). Same auth
+(`Authorization: sk_...`). This is what the Shade MCP's `manage_automations`
+wraps; its `get` of "Proxy + Relational Link" returned exactly these shapes.
+
+```
+GET    /automations/integrations?workspace_id=&drive_id=   catalog (triggers/actions + schemas)
+GET    /automations?drive_id=                              list
+POST   /automations  {name, drive_id, description?}        create -> v1 DRAFT
+GET    /automations/{id}                                   active/latest version + versions[]
+PUT    /automations/{id}  {name, viewport{x,y,zoom}, nodes[], edges[], description?}
+                                                           whole-graph replace; saving an ACTIVE
+                                                           version makes a new DRAFT
+PATCH  /automations/{id}/versions/{v}/status  {status}     DRAFT | ACTIVE | BROKEN
+GET    /automations/{id}/versions/{v}
+DELETE /automations/{id}                                   -> 204
+POST   /automations/{id}/executions  {selection, inputs?}  run now: selection
+         {type:"asset", asset_ids:[...]} or {type:"directory", paths:[...]}, 1-1000
+GET    /automations/{id}/executions?page=&page_size=
+GET    /automations/{id}/executions/form                   inputs_schema or null
+```
+
+- **Node:** `{id, node_type: TRIGGER|ACTION|CONDITION, integration_id,
+  operation, label, config, position_x, position_y}`. **Edge:** `{id,
+  source_node_id, target_node_id, output_key}`. **Node ids are required on
+  PUT**, so a client mints its own UUIDs and can write templates like
+  `{{<triggerId>.asset.directory}}/proxies` in one save. (The MCP generates
+  them itself, which is why building through the MCP needed two saves.)
+- **The MCP's `list_integrations` 422** ("workspace_id: Field required") is
+  the MCP not passing `workspace_id`; the REST route takes it.
+- "Proxy + Relational Link" on Adobe Sandbox, as read 2026-10-26: SHADE
+  `manually_triggered` → SHADE `generate_proxy` (`asset`, `preset:
+  h264_1080p`, `destination_folder: {{trigger.asset.directory}}/proxies`) →
+  SHADE `update_asset_metadata` on the trigger asset (`Linked Proxy` =
+  `[{id: {{proxyNode.asset.id}}, type: asset}]`) → the same on the proxy
+  asset (`Linked Hi Res` = the trigger asset).
+- **Proxy-linking setup creates "Make SPT Proxies"** (decided 2026-10-26,
+  `proxyflow.js` + `setup.setupProxyAutomation`): the layout above, with
+  node ids minted by the plugin, the drive's own Linked Proxy / Hi Res ids,
+  and the integration id read from the catalog (the one offering
+  `manually_triggered`, `generate_proxy`, `update_asset_metadata`; a
+  CONFLICT if none does). Create, then PUT, then PATCH the newest version
+  ACTIVE; any failure after create deletes it, so a half-made DRAFT never
+  holds the name. **The name is the standard:** an automation called exactly
+  "Make SPT Proxies" is left alone whatever it does or its status (a WARN if
+  not ACTIVE); a similar one under another name ("Proxy + Relational Link")
+  doesn't count. **The plugin never runs it**: manual trigger, run from
+  Shade. Linking is "ready" only with the fields and the automation, so
+  Adobe Sandbox will be asked to add just the automation. Unit-tested
+  against stubbed REST; *unverified* against real Shade (which of
+  `metadata` object vs JSON string the API wants; the trigger's config).
+
 ## Custom-object API (undocumented)
 
 **Read out of the Shade web app's own JavaScript** (`app.shade.inc`,

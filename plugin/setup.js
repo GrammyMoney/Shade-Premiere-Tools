@@ -4,7 +4,10 @@
  * Per feature, because each Settings toggle needs its own fields:
  *   tracking  Imported?, Used?, Project Media, Projects Used In, and the
  *             "Premiere Projects" object with Project GUID / Project File
- *   linking   Linked Proxy and Linked Hi Res: one-way relations to assets
+ *   linking   Linked Proxy and Linked Hi Res: one-way relations to assets,
+ *             and the "Make SPT Proxies" automation that fills them
+ *             (proxyflow.js), created and activated only when no automation
+ *             has that exact name
  *
  * Shared by the panel (switching a feature on checks, then asks in a
  * dialog before creating: enable.js) and the CLI:
@@ -30,6 +33,7 @@
  */
 
 const shade = require("./shade.js");
+const proxyflow = require("./proxyflow.js");
 const { FIELD, COLUMN } = require("./sync.js");
 
 const TYPE_NAME = "Premiere Projects";
@@ -92,7 +96,85 @@ async function setupLinking(drive, fields, check) {
       toCreate.forEach((w) => say("created", `field "${w.column_name}"`, "relation to assets"));
     }
   }
+  if (!(await setupProxyAutomation(drive, check, say, ready))) ready = false;
   return { ready, lines };
+}
+
+const AUTOMATION_NOTE = `makes a ${proxyflow.PRESET} proxy in a "proxies" folder next to the clip and links the two; ` +
+  "you run it from Shade";
+
+const listOf = (r) => (Array.isArray(r) ? r : (r && (r.items || r.automations || r.data)) || []);
+
+/* The workspace a drive belongs to (the integration catalog is per workspace). */
+async function workspaceOf(driveId) {
+  for (const w of (await shade.listWorkspaces()) || []) {
+    const drives = await shade.listDrives(w.id).catch(() => []);
+    if ((drives || []).some((d) => d.id === driveId)) return w.id;
+  }
+  return null;
+}
+
+/* An automation's newest version number, from GET /automations/{id}. */
+function versionOf(a) {
+  const nums = [a && a.version && a.version.version, a && a.active_version && a.active_version.version]
+    .concat(((a && a.versions) || []).map((v) => v && v.version))
+    .filter((n) => typeof n === "number");
+  return nums.length ? Math.max(...nums) : 1;
+}
+
+/*
+ * "Make SPT Proxies": left alone if an automation of that exact name exists
+ * (whatever it does: the name is the standard), else created, filled and
+ * activated. A failure after the create deletes it again, or the reserved
+ * name would make every later setup skip a broken half-made automation.
+ * Resolves true when the drive has it.
+ */
+async function setupProxyAutomation(drive, check, say, fieldsReady) {
+  const label = `automation "${proxyflow.NAME}"`;
+  const existing = listOf(await shade.listAutomations(drive.id)).find((a) => a && a.name === proxyflow.NAME);
+  if (existing) {
+    if (existing.status && existing.status !== "ACTIVE") {
+      say("WARN", label, `exists but is ${existing.status}; activate it in Shade`);
+    } else {
+      say("ok", label);
+    }
+    return true;
+  }
+  if (check) { say("missing", label, AUTOMATION_NOTE); return false; }
+  if (!fieldsReady) {
+    say("CONFLICT", label, "not created: the link fields above need fixing first");
+    return false;
+  }
+
+  // Field ids as they are now (they may have just been created).
+  const fields = ((await shade.listFields(drive.id)) || []).filter((f) => !f.archived && !f.deleted && f.location === "custom");
+  const id = (name) => (fields.find((f) => f.name === name) || {}).id;
+  const linkedProxyId = id(LINK_FIELDS.proxy);
+  const linkedHiResId = id(LINK_FIELDS.hiRes);
+  if (!linkedProxyId || !linkedHiResId) {
+    say("CONFLICT", label, "not created: Linked Proxy / Linked Hi Res not found after creating them");
+    return false;
+  }
+  const workspaceId = await workspaceOf(drive.id);
+  const catalog = workspaceId ? await shade.listIntegrations(workspaceId, drive.id) : [];
+  const integ = proxyflow.findShadeIntegration(listOf(catalog));
+  if (!integ.id) {
+    say("CONFLICT", label, `not created: Shade's automation catalog lacks ${integ.missing.join(", ")}`);
+    return false;
+  }
+
+  const made = await shade.createAutomation(drive.id, proxyflow.NAME, proxyflow.DESCRIPTION);
+  try {
+    const graph = proxyflow.buildGraph({ integrationId: integ.id, linkedProxyId, linkedHiResId });
+    await shade.saveAutomation(made.id, { name: proxyflow.NAME, description: proxyflow.DESCRIPTION, ...graph });
+    const saved = await shade.getAutomation(made.id);
+    await shade.setAutomationStatus(made.id, versionOf(saved), "ACTIVE");
+  } catch (e) {
+    await shade.deleteAutomation(made.id).catch(() => {});
+    throw e;
+  }
+  say("created", label, `active; ${AUTOMATION_NOTE}`);
+  return true;
 }
 
 async function setupTracking(drive, fields, check) {
@@ -224,4 +306,4 @@ async function setupTracking(drive, fields, check) {
   return { ready, lines };
 }
 
-module.exports = { setup, TYPE_NAME, LINK_FIELDS };
+module.exports = { setup, TYPE_NAME, LINK_FIELDS, versionOf };

@@ -197,6 +197,26 @@ const addAssetFields = (driveId, columns) =>
   request("POST", `/workspaces/drives/${driveId}/metadata/assets/columns`,
     { body: { columns }, retry: false });
 
+/* --------------------------------------------------------- automations */
+
+/*
+ * Shade's documented automations API (academy.shade.inc/developers/
+ * automate/automations). Used only by proxy-linking setup, to create
+ * "Make SPT Proxies" (proxyflow.js). The plugin never runs an automation.
+ * Create is not idempotent, so it is not retried; setup lists first.
+ */
+const listAutomations = (driveId) => request("GET", "/automations", { query: { drive_id: driveId } });
+const getAutomation = (id) => request("GET", `/automations/${id}`);
+const createAutomation = (driveId, name, description) =>
+  request("POST", "/automations", { body: { drive_id: driveId, name, description }, retry: false });
+/* Whole-graph replace: { name, description?, viewport, nodes, edges }. */
+const saveAutomation = (id, body) => request("PUT", `/automations/${id}`, { body });
+const setAutomationStatus = (id, version, status) =>
+  request("PATCH", `/automations/${id}/versions/${version}/status`, { body: { status } });
+const deleteAutomation = (id) => request("DELETE", `/automations/${id}`, { retry: false });
+const listIntegrations = (workspaceId, driveId) =>
+  request("GET", "/automations/integrations", { query: { workspace_id: workspaceId, drive_id: driveId } });
+
 /* ------------------------------------------------------------- records */
 
 const recordsPath = (driveId, typeId) =>
@@ -236,5 +256,7 @@ module.exports = {
   assetByPath, getAsset, putAssetValues, listFilesPage, downloadUrl,
   createStack, addToStack, moveInStack, getComments,
   listFields, listObjectTypes, getObjectType, createObjectType, addObjectColumns, addAssetFields,
-  listAllRecords, getRecord, createRecord, patchRecord
+  listAllRecords, getRecord, createRecord, patchRecord,
+  listAutomations, getAutomation, createAutomation, saveAutomation, setAutomationStatus,
+  deleteAutomation, listIntegrations
 };

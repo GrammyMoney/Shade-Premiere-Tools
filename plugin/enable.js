@@ -92,8 +92,10 @@ async function ensure(feature, drive, { force = false } = {}) {
     heading: `Set up "${drive.name}" for ${LABEL[feature]}?`,
     lines: ["This adds to the drive, for everyone who uses it:"]
       .concat(todo.map((l) => "•  " + label(l)))
-      .concat(["Shade can archive these fields later, but not delete them."]),
-    yes: "Create Fields",
+      .concat([todo.some((l) => /^field|^column|^object/.test(l.what))
+        ? "Shade can archive fields later, but not delete them."
+        : "Nothing is run: the automation waits for someone to trigger it in Shade."]),
+    yes: "Set Up",
     no: "Not Now"
   });
   if (!yes) {

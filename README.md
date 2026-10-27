@@ -60,7 +60,11 @@ Tracking creates the **Premiere Projects** object (`Project GUID`,
 `Project File`) and the asset fields `Imported?`, `Used?`, `Project Media`,
 and a two-way `Projects Used In` that gives Premiere Projects an **Assets**
 column. A drive's own object called "Projects" is never used. Linking
-creates `Linked Proxy` and `Linked Hi Res`, one-way relations to assets.
+creates `Linked Proxy` and `Linked Hi Res`, one-way relations to assets, and
+an active, manually triggered automation **Make SPT Proxies** that fills
+them: run it in Shade on video clips and it makes a 1080p proxy in a
+`proxies` folder next to each clip and links the two. It's skipped if an
+automation with that name already exists. The plugin never runs it.
 
 ## Without the panel: the CLI
 

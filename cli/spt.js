@@ -355,7 +355,8 @@ function parseArgs(argv) {
 
 const USAGE = `usage: spt <command>
   setup --drive NAME|ID [--check]             create the fields tracking needs (or report)
-  setup --drive NAME|ID --linking [--check]   the same for proxy linking (Linked Proxy/Hi Res)
+  setup --drive NAME|ID --linking [--check]   the same for proxy linking: Linked Proxy/Hi Res
+                                              and the "Make SPT Proxies" automation (never run)
   run --drive NAME|ID [--drive ...] [--full]   one pass over the drive(s)
   key                                         store your API key in the Keychain
   install --drive NAME|ID [--every MIN]       run automatically (default 15 min)
