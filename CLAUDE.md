@@ -684,9 +684,27 @@ GET    /automations/{id}/executions/form                   inputs_schema or null
   not ACTIVE); a similar one under another name ("Proxy + Relational Link")
   doesn't count. **The plugin never runs it**: manual trigger, run from
   Shade. Linking is "ready" only with the fields and the automation, so
-  Adobe Sandbox will be asked to add just the automation. Unit-tested
-  against stubbed REST; *unverified* against real Shade (which of
-  `metadata` object vs JSON string the API wants; the trigger's config).
+  Adobe Sandbox will be asked to add just the automation.
+- **Verified on Politik Party, 2026-11-18**, REST only, with
+  `tools/proxyflow-lab.js` (`inspect` / `reset` / `setup` / `diff` /
+  `run`; every request logged, key redacted, to the git-ignored
+  `tools/proxyflow-lab.log`). `metadata` as a JSON object is right; the
+  trigger's config is `{}`; `integration_id` is the literal `"SHADE"` (the
+  catalog's id). Run on a 3 s 4K clip at the drive root: COMPLETED in 23 s,
+  proxy at `/proxies/<name>_proxy_h264_1080p.mp4` (1920×1080, 878 KB),
+  Linked Proxy on the clip, Linked Hi Res on the proxy. (Verified on the
+  `linker-only` branch, whose setup.js linking code is this one's.)
+- **Every node needs its own `position_x`/`position_y`.** The first build
+  saved all four at (0, 0): Shade stored and ran all four, but its editor
+  showed only one node, so the automation looked broken. `buildGraph` now
+  uses the reference's layout (x 250, y 150 + 340 per step), and a test
+  keeps positions distinct. The MCP's `save_graph` auto-lays nodes out,
+  which is why MCP-built automations never showed this. An automation built
+  before the fix is left alone by setup (the name is the standard), so
+  rebuild it: `proxyflow-lab.js reset --automation-only`, then `setup`.
+- **A field can't be deleted through the MCP**, and Shade's docs list no
+  route for it; `proxyflow-lab.js reset` tries the web app's column route
+  (DELETE, then PATCH `{archive: true}`). Not yet exercised.
 
 ## Custom-object API (undocumented)
 
@@ -867,6 +885,8 @@ Measured on Premiere 26.5.1 / macOS / arm64 unless stated.
 scripts/package-ccx.sh build the installable .ccx into dist/ (bash 3.2)
 CLAUDE.md              this file
 docs/shade-endpoints.txt   every documented endpoint, extracted from Shade's docs
+tools/proxyflow-lab.js "Make SPT Proxies" against REAL Shade, REST only, via setup.js:
+                       inspect / reset / setup / diff / run <assetId>. Key from .env.
 tools/pins-harness.js  project pinning + import linking under Node: REAL bridge
                        (read-only) and real files on a mount; REST, dialogs and
                        pin/unpin stubbed. Changes nothing.

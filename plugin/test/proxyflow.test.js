@@ -41,3 +41,10 @@ test("the catalog: the integration with all three operations, however entries ar
 test("uuid4 is a v4 UUID", () => {
   assert.match(uuid4(), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 });
+
+test("every node has its own position (Shade's editor drops nodes that share one)", () => {
+  const { nodes } = buildGraph({ integrationId: "SHADE", linkedProxyId: "p", linkedHiResId: "h" });
+  const spots = nodes.map((n) => `${n.position_x},${n.position_y}`);
+  assert.strictEqual(new Set(spots).size, nodes.length);
+  assert.deepStrictEqual(spots, ["250,150", "250,490", "250,830", "250,1170"]);   // the reference's layout
+});
