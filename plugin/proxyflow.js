@@ -63,8 +63,13 @@ function findShadeIntegration(catalog) {
 /* The PUT body's graph. Field ids are the drive's own. */
 function buildGraph({ integrationId, linkedProxyId, linkedHiResId, uuid = uuid4 }) {
   const [T, G, P, H] = [uuid(), uuid(), uuid(), uuid()];
+  // Every node needs its own position. Saved all at (0, 0), Shade ran all
+  // four steps but its editor showed only one node (measured 2026-11-18 on
+  // Politik Party). The spacing is the hand-built reference's.
+  let row = 0;
   const node = (id, node_type, operation, label, config) =>
-    ({ id, node_type, integration_id: integrationId, operation, label, config, position_x: 0, position_y: 0 });
+    ({ id, node_type, integration_id: integrationId, operation, label, config,
+       position_x: 250, position_y: 150 + 340 * row++ });
   const nodes = [
     node(T, "TRIGGER", OPS.trigger, "Manual Trigger", {}),
     node(G, "ACTION", OPS.proxy, "Generate Proxy", {
