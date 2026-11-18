@@ -141,9 +141,20 @@
   not among UXP's built-in Spectrum widgets as far as we know.
 -->
 <div id="view-settings" style="display: none;">
+  <!--
+    One control for pinning: whether it runs and when a new clip is pinned
+    (settings autoPin + pinWhen, shown together; main.js maps between them).
+  -->
   <div class="setting">
-    <sp-checkbox id="set-autoPin">Auto-pinning</sp-checkbox>
-    <div class="about">Offer to pin a project's Shade media when it opens, unpin it when it closes, and pin clips as they are imported.</div>
+    <div class="section">Auto-pinning</div>
+    <sp-picker id="set-pinMode" size="s" label="Auto-pinning">
+      <sp-menu slot="options">
+        <sp-menu-item value="off">Off</sp-menu-item>
+        <sp-menu-item value="import">Pin clips on import</sp-menu-item>
+        <sp-menu-item value="timeline">Pin clips when used in a timeline</sp-menu-item>
+      </sp-menu>
+    </sp-picker>
+    <div class="about" style="margin-left: 0;" id="pinModeAbout"></div>
   </div>
   <div class="setting">
     <sp-checkbox id="set-tracking">Project tracking</sp-checkbox>

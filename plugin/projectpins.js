@@ -10,7 +10,9 @@
  *   Would you like to pin these?
  *
  * Asked, not done, because a real project's media pool is terabytes (the
- * reason link.js leaves an opened project's clips alone). Nothing is asked
+ * reason link.js leaves an opened project's clips alone). With "pin when
+ * used in a timeline" (settings pinWhen), only clips on a timeline count:
+ * the bins' unused media is exactly what that setting leaves unpinned. Nothing is asked
  * when everything is already pinned, and each project is asked about once
  * per session. The panel's "pin project" asks again on demand.
  *
@@ -35,6 +37,7 @@ const dialog = require("./dialog.js");
 const settings = require("./settings.js");
 const link = require("./link.js");
 const { safe, clips, activeProject } = require("./walk.js");
+const { walkSequences } = require("./scan.js");
 const { locate, shadePath, localPath } = require("./mounts.js");
 const { linkedIds, pinnableIno, isPinned, tally, formatBytes } = require("./pins.js");
 const { projectDisplayName } = require("./paths.js");
@@ -91,8 +94,16 @@ async function gather(ppro) {
     if (where && !files.has(path)) files.set(path, where);
   };
 
+  let list = await clips(ppro, p.folder);
+  const timelineOnly = settings.get("pinWhen") === "timeline";
+  if (timelineOnly) {
+    const used = new Set();
+    await walkSequences(ppro, p.project, used);
+    list = list.filter((c) => used.has(c.id));
+  }
+
   const withoutProxy = [];
-  for (const c of await clips(ppro, p.folder)) {
+  for (const c of list) {
     const media = await safe(() => c.clip.getMediaFilePath(), null);
     add(media);
     const proxy = (await safe(() => c.clip.hasProxy(), false)) ? await safe(() => c.clip.getProxyPath(), null) : null;
@@ -124,7 +135,7 @@ async function gather(ppro) {
     const st = await shadefs.statOf(path).catch(() => ({ ino: null, size: null }));
     out.push({ path, ino: st.ino, size: st.size, mount, rest, pinned: isPinned(pinnedNow, mount.driveId, rest) });
   });
-  return { guid: p.guid, name: projectDisplayName(p.name) || "Untitled project", path: p.path, files: out };
+  return { guid: p.guid, name: projectDisplayName(p.name) || "Untitled project", path: p.path, files: out, timelineOnly };
 }
 
 /*
@@ -156,7 +167,7 @@ async function offerPin(ppro, { always = false } = {}) {
     const yes = await dialog.confirm({
       heading: `Pin the project "${g.name}"?`,
       lines: [
-        `Number of assets: ${t.count} (${formatBytes(t.bytes)})`,
+        `Number of assets${g.timelineOnly ? " on its timelines" : ""}: ${t.count} (${formatBytes(t.bytes)})`,
         `Already pinned: ${t.pinned.count} (${formatBytes(t.pinned.bytes)})  ·  ` +
           `Not pinned: ${t.unpinned.count} (${formatBytes(t.unpinned.bytes)})`,
         "Would you like to pin these?"

@@ -4,13 +4,15 @@ const { setPlatform } = require("../platform.js");
 const settings = require("../settings.js");
 
 test("defaults: auto-pinning on, tracking and linking off", () => {
-  assert.deepStrictEqual(settings.parse(null), { autoPin: true, tracking: false, linking: false, sourceComments: "ask" });
+  assert.deepStrictEqual(settings.parse(null), { autoPin: true, pinWhen: "import", tracking: false, linking: false, sourceComments: "ask" });
 });
 
 test("saved values win; junk and unknown keys are ignored", () => {
   assert.deepStrictEqual(settings.parse('{"tracking": true, "autoPin": "yes", "extra": 1, "sourceComments": "always"}'),
-                         { autoPin: true, tracking: true, linking: false, sourceComments: "always" });
+                         { autoPin: true, pinWhen: "import", tracking: true, linking: false, sourceComments: "always" });
   assert.strictEqual(settings.parse('{"sourceComments": "sometimes"}').sourceComments, "ask");
+  assert.strictEqual(settings.parse('{"pinWhen": "timeline"}').pinWhen, "timeline");
+  assert.strictEqual(settings.parse('{"pinWhen": "export"}').pinWhen, "import");
   assert.deepStrictEqual(settings.parse("not json"), settings.DEFAULTS);
 });
 
@@ -30,4 +32,7 @@ test("set saves, notifies, and survives a reload", async () => {
   await settings.set("sourceComments", "never");
   assert.strictEqual(settings.get("sourceComments"), "never");
   await assert.rejects(settings.set("sourceComments", true));
+  await settings.set("pinWhen", "timeline");
+  assert.strictEqual(settings.get("pinWhen"), "timeline");
+  await assert.rejects(settings.set("pinWhen", "never"));
 });

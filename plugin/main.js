@@ -215,8 +215,27 @@ let shownWhy = null;         // the not-tracking reason currently in the note
 // second and vanished).
 let editingKey = false;
 
-const FEATURES = ["autoPin", "tracking", "linking"];
-const FEATURE_LABEL = { autoPin: "auto-pinning", tracking: "project tracking", linking: "proxy linking" };
+const FEATURES = ["tracking", "linking"];
+const PICKERS = ["pinMode", "sourceComments"];
+const FEATURE_LABEL = { tracking: "project tracking", linking: "proxy linking" };
+
+/*
+ * Auto-pinning is one picker, Off / on import / when used in a timeline,
+ * over two settings: autoPin (whether) and pinWhen (when). Off keeps
+ * pinWhen, so switching back on returns to the same choice.
+ */
+const PIN_MODES = ["off", "import", "timeline"];
+const pinModeOf = (on) => (on.autoPin ? on.pinWhen : "off");
+async function setPinMode(mode) {
+  if (!PIN_MODES.includes(mode)) throw new Error(`"${mode}" is not a choice for auto-pinning`);
+  if (mode !== "off") await settings.set("pinWhen", mode);
+  await settings.set("autoPin", mode !== "off");
+}
+const PIN_ABOUT = {
+  off: "Nothing is pinned or unpinned, and nothing is asked.",
+  import: "Offers to pin a project's Shade media when it opens and to unpin it when it closes; new clips are pinned as they are imported.",
+  timeline: "Offers to pin a project's timeline media when it opens and to unpin it when it closes; new clips are pinned when first placed in a timeline, not on import."
+};
 let toggling = false;         // a switch-on check is in flight; don't redraw the boxes
 
 function wirePanel() {
@@ -249,7 +268,8 @@ function wirePanel() {
     $("changekey").style.display = key ? "block" : "none";
     set("changekey", editingKey ? "cancel" : "change API key");
     if (!toggling) for (const f of FEATURES) $("set-" + f).checked = !!on[f];
-    renderPicker(on.sourceComments);
+    for (const k of PICKERS) renderPicker(k, k === "pinMode" ? pinModeOf(on) : on[k]);
+    set("pinModeAbout", PIN_ABOUT[pinModeOf(on)]);
 
     const ex = exporter.status();
     $("export").className = "export" + (ex.busy ? " busy" : "");
@@ -339,7 +359,6 @@ function wirePanel() {
         .then(async () => {
           await settings.set(f, want);
           if (!want) return note(`${FEATURE_LABEL[f]} is off`);
-          if (f === "autoPin") return note("auto-pinning is on");
           note("checking the drive…");
           note(await enable.switchOn(f));
         })
@@ -377,9 +396,9 @@ function wirePanel() {
     note(await projectpins.offerPin(ppro, { always: true }));
   });
 
-  // The source-comments picker: select the item matching the setting.
-  function renderPicker(value) {
-    const picker = $("set-sourceComments");
+  // The pickers (Settings): select the item matching the setting.
+  function renderPicker(key, value) {
+    const picker = $("set-" + key);
     if (!picker) return;
     for (const item of picker.querySelectorAll("sp-menu-item")) {
       if ((item.getAttribute("value") === value) !== item.hasAttribute("selected")) {
@@ -388,14 +407,24 @@ function wirePanel() {
       }
     }
   }
-  const picker = $("set-sourceComments");
-  if (picker) picker.onchange = (e) => {
-    const t = e && e.target;
-    const value = (t && t.value) || (t && t.selectedIndex >= 0 && ["ask", "always", "never"][t.selectedIndex]);
-    settings.set("sourceComments", value)
-      .then(() => note(`comments on imported clips: ${value}`))
-      .catch((err) => note(err.message));
+  const PICKED = {
+    pinMode: (v) => ({ off: "auto-pinning is off", import: "auto-pinning: on import",
+                       timeline: "auto-pinning: when used in a timeline" })[v],
+    sourceComments: (v) => `comments on imported clips: ${v}`
   };
+  const CHOICES_OF = { pinMode: PIN_MODES, sourceComments: settings.CHOICES.sourceComments };
+  const SAVE = { pinMode: setPinMode, sourceComments: (v) => settings.set("sourceComments", v) };
+  for (const key of PICKERS) {
+    const picker = $("set-" + key);
+    if (!picker) continue;
+    picker.onchange = (e) => {
+      const t = e && e.target;
+      const value = (t && t.value) || (t && t.selectedIndex >= 0 && CHOICES_OF[key][t.selectedIndex]);
+      SAVE[key](value)
+        .then(() => { note(PICKED[key](value)); render(); })
+        .catch((err) => note(err.message));
+    };
+  }
 
   on("export", async () => {
     if (exporter.status().busy) return;

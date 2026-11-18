@@ -1,7 +1,10 @@
 /*
  * Which features run: the panel's Settings tab.
  *
- *   autoPin   on   pin prompt on open, unpin prompt on close, pin new imports
+ *   autoPin   on   pin prompt on open, unpin prompt on close, pin new clips
+ *   pinWhen   "import"  when a new clip is pinned: "import" (as it lands in
+ *                       the project) | "timeline" (when it is first put on a
+ *                       timeline; the open prompt then counts timeline media only)
  *   tracking  off  Imported?/Used?/Projects Used In and the project record
  *   linking   off  attach a clip's Linked Proxy / Linked Hi Res
  *   sourceComments  "ask"  Shade comments on imported clips as clip
@@ -21,8 +24,9 @@ const { log } = require("./log.js");
 const { platform } = require("./platform.js");
 
 const FILE_NAME = "settings.json";
-const DEFAULTS = Object.freeze({ autoPin: true, tracking: false, linking: false, sourceComments: "ask" });
-const CHOICES = { sourceComments: ["ask", "always", "never"] };
+const DEFAULTS = Object.freeze({ autoPin: true, pinWhen: "import", tracking: false, linking: false,
+                                 sourceComments: "ask" });
+const CHOICES = { pinWhen: ["import", "timeline"], sourceComments: ["ask", "always", "never"] };
 
 /* A saved or requested value, if it is a valid one for this key. */
 function valid(key, v) {
@@ -43,7 +47,7 @@ function parse(text) {
 
 async function load() {
   current = parse(await platform().readData(FILE_NAME).catch(() => null));
-  log(`settings: auto-pinning ${onOff(current.autoPin)}, project tracking ${onOff(current.tracking)}, ` +
+  log(`settings: auto-pinning ${onOff(current.autoPin)} (on ${current.pinWhen}), project tracking ${onOff(current.tracking)}, ` +
       `proxy linking ${onOff(current.linking)}, source comments ${current.sourceComments}`);
   return current;
 }

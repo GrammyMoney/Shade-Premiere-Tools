@@ -140,4 +140,4 @@ async function scanProject(ppro, project) {
   };
 }
 
-module.exports = { scanProject, collapse };
+module.exports = { scanProject, collapse, walkSequences };

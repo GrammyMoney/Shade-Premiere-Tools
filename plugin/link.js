@@ -26,6 +26,15 @@
  * attach, "autoPin" the pinning. With linking off, a new clip is pinned
  * straight from the mount, with no Shade request; with both off, nothing.
  *
+ * "pinWhen" says when a new clip is pinned (added 2026-10-27):
+ *   import    as it lands in the project (above)
+ *   timeline  when it is first put on a timeline. There is no event for
+ *             that, so the debounced DIRTY walk also lists every sequence's
+ *             clips and pins the items not on a timeline before. As with
+ *             imports, what is already on a timeline when a project is first
+ *             seen (or when either setting changes) is left alone: the open
+ *             prompt is how a whole project gets pinned.
+ *
  * Came over from Shade-Linker. Pinning a whole project, with the editor's
  * say-so, is projectpins.js; this file only ever pins what was just imported,
  * and reports it through onPinned so the project's unpin covers it.
@@ -36,8 +45,9 @@ const shade = require("./shade.js");
 const shadefs = require("./shadefs.js");
 const settings = require("./settings.js");
 const { safe, clips, activeProject } = require("./walk.js");
+const { walkSequences } = require("./scan.js");
 const { locate, shadePath, localPath } = require("./mounts.js");
-const { linkedIds, pinnableIno, decide, fieldByName } = require("./pins.js");
+const { linkedIds, pinnableIno, decide, fieldByName, isPinned } = require("./pins.js");
 
 const FIELD_NAMES = { proxy: "Linked Proxy", hiRes: "Linked Hi Res" };
 const FIELD_TTL_MS = 10 * 60 * 1000;   // a panel runs for days; fields get replaced
@@ -49,6 +59,7 @@ const MISSING_RETRIES = 5;
 const seen = new Map();        // project guid -> Set of project item ids
 const waiting = new Map();     // item id -> tries left, for files Shade has not indexed yet
 const fields = new Map();      // driveId -> { ids: { proxy, hiRes }, at }
+const onTimeline = new Map();  // project guid -> Set of item ids already on a timeline
 let queue = Promise.resolve();
 let onPinned = () => {};     // (project, [{ path, ino, size, mount, rest }])
 let onNeedsSetup = () => {}; // (driveId): linking is on, the drive lacks both fields
@@ -58,6 +69,13 @@ const stats = {
   linked: 0, pinned: 0, skipped: 0, failed: 0,
   last: null, lastAt: 0, lastError: null, mounts: 0
 };
+
+const pinOnImport = () => settings.get("autoPin") && settings.get("pinWhen") === "import";
+const pinOnTimeline = () => settings.get("autoPin") && settings.get("pinWhen") === "timeline";
+
+// Switching either one starts the timeline watch afresh: what is on a
+// timeline at that moment is left alone, not pinned in one go.
+settings.onChange((key) => { if (key === "autoPin" || key === "pinWhen") onTimeline.clear(); });
 
 /* ------------------------------------------------------------ the walk */
 
@@ -94,7 +112,10 @@ function enqueue(fn) {
 
 /* A project opened or became active: seed it, so its contents are left alone. */
 function seed(ppro) {
-  return enqueue(() => fresh(ppro).then(() => undefined));
+  return enqueue(async () => {
+    await fresh(ppro);
+    if (pinOnTimeline()) await timelineAdditions(ppro);
+  });
 }
 
 function onImport(ppro) {
@@ -118,7 +139,64 @@ function onDirty(ppro) {
   return enqueue(async () => {
     const found = await fresh(ppro);
     if (found.length) await processAll(found);
+    if (pinOnTimeline()) await pinTimeline(ppro);
   });
+}
+
+/* ------------------------------------------------------------ timelines */
+
+/*
+ * Clip items put on a timeline since the last look, with the project.
+ * The first look at a project seeds it and returns none.
+ */
+async function timelineAdditions(ppro) {
+  const p = await activeProject(ppro);
+  if (!p) return null;
+  const used = new Set();
+  await walkSequences(ppro, p.project, used);
+  const known = onTimeline.get(p.guid);
+  if (!known) {
+    onTimeline.set(p.guid, used);
+    log(`watching timelines of ${p.guid.slice(0, 8)}: ${used.size} clip(s) already on one left alone`);
+    return null;
+  }
+  const added = [...used].filter((id) => !known.has(id));
+  if (!added.length) return null;
+  for (const id of added) known.add(id);
+  const ids = new Set(added);
+  const items = (await clips(ppro, p.folder)).filter((c) => ids.has(c.id));   // sequences drop out here
+  for (const c of items) c.project = { guid: p.guid, name: p.name };
+  return { p, items, ids };
+}
+
+async function pinTimeline(ppro) {
+  const found = await timelineAdditions(ppro);
+  if (!found || !found.items.length) return;
+  let ms;
+  try {
+    ms = await mounts();
+  } catch (e) {
+    log("Shade bridge unavailable:", e.message);
+    stats.lastError = "Shade is not running";
+    // Look at them again next time, when Shade may be back.
+    for (const id of found.ids) onTimeline.get(found.p.guid).delete(id);
+    return;
+  }
+  stats.lastError = null;
+  const pinnedNow = await shadefs.pinned().catch(() => null);
+  for (const item of found.items) {
+    try {
+      const path = await safe(() => item.clip.getMediaFilePath(), null);
+      const where = path && locate(path, ms);
+      if (!where) continue;                 // not on a Shade drive: not ours
+      const n = await pinFiles(item, path, where.mount, pinnedNow);
+      log(`${item.name}: on a timeline, ${n ? `pinned ${n} file(s)` : "already pinned"}`);
+    } catch (e) {
+      stats.failed++;
+      stats.lastError = e.message;
+      log(`${item.name}: ${e.message}`);
+    }
+  }
 }
 
 /* ------------------------------------------------------------ the work */
@@ -146,7 +224,7 @@ async function fieldIds(driveId) {
 
 async function processAll(items) {
   // Source comments ride on this walk too (comments.js, via onAfterImport).
-  if (!settings.get("linking") && !settings.get("autoPin") && settings.get("sourceComments") === "never") return;
+  if (!settings.get("linking") && !pinOnImport() && settings.get("sourceComments") === "never") return;
   let ms;
   try {
     ms = await mounts();
@@ -203,7 +281,7 @@ async function processOne(item, ms) {
 
   const pins = [];
   const addPin = async (p) => {
-    if (!settings.get("autoPin")) return;
+    if (!pinOnImport()) return;
     const st = await shadefs.statOf(p);
     const where = locate(p, [mount]);
     if (pinnableIno(st.ino, mount.rootIno)) pins.push({ path: p, ino: st.ino, size: st.size, mount, rest: where && where.rest });
@@ -256,14 +334,26 @@ async function processOne(item, ms) {
 
 /* Auto-pinning alone: the clip and whatever proxy it already has. */
 async function pinOnly(item, path, mount) {
-  if (!settings.get("autoPin")) return;
+  if (!pinOnImport()) return;
+  await pinFiles(item, path, mount, null);
+}
+
+/*
+ * Pin a clip's media and its attached proxy, skipping any file already in
+ * `pinnedNow` (the bridge's pin list, or null to skip none). Returns how
+ * many were pinned.
+ */
+async function pinFiles(item, path, mount, pinnedNow) {
   const pins = [];
   for (const p of [path, await safe(() => item.clip.getProxyPath(), null)]) {
-    if (!p || !locate(p, [mount])) continue;
+    const where = p && locate(p, [mount]);
+    if (!where) continue;
+    if (pinnedNow && isPinned(pinnedNow, mount.driveId, where.rest)) continue;
     const st = await shadefs.statOf(p);
-    if (pinnableIno(st.ino, mount.rootIno)) pins.push({ path: p, ino: st.ino, size: st.size, mount, rest: locate(p, [mount]).rest });
+    if (pinnableIno(st.ino, mount.rootIno)) pins.push({ path: p, ino: st.ino, size: st.size, mount, rest: where.rest });
   }
   await sendPins(item, pins);
+  return pins.length;
 }
 
 async function sendPins(item, pins) {
@@ -297,5 +387,5 @@ function setOnAfterImport(fn) { onAfterImport = fn; }
 /* Field ids are re-read after setup creates them. */
 function forget() { fields.clear(); }
 
-module.exports = { seed, onImport, onDirty, status, fieldIds, getAssetOrNull, setOnPinned,
+module.exports = { seed, onImport, onDirty, status, timelineAdditions, fieldIds, getAssetOrNull, setOnPinned,
                    setOnNeedsSetup, setOnAfterImport, forget, FIELD_NAMES };

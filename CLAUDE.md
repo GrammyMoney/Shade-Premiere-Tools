@@ -355,6 +355,22 @@ none of it (it has no mount and no bridge).
     media).
   - **Asked, never automatic**, because a real media pool is terabytes.
     The panel's **pin project** asks again on demand.
+- **When a new clip is pinned: on import, or when used in a timeline**
+  (setting `pinWhen`, `"import"` default | `"timeline"`; added 2026-10-27).
+  **One picker in Settings, Off / Pin clips on import / Pin clips when used
+  in a timeline**, over the two stored settings `autoPin` + `pinWhen`
+  (`main.js` `setPinMode`/`pinModeOf`; Off keeps `pinWhen`). A checkbox
+  plus a separate picker read as two unrelated settings. On a timeline: an import pins nothing
+  (linking still attaches); the debounced DIRTY walk in `link.js` also
+  lists every sequence's clip items (`scan.walkSequences`) and pins media +
+  attached proxy for items not on a timeline before, skipping files the pin
+  list already has. What is on a timeline when a project is first seen, or
+  when `autoPin`/`pinWhen` changes, is left alone (same rule as imports).
+  The open prompt then counts **timeline media only** ("Number of assets on
+  its timelines"), since unused bin media is what this mode leaves unpinned.
+  Direct timeline use only, like `Used?`: nested sequences and multicam can
+  hide a clip. Unit-tested with Premiere faked (`test/link-timeline.test.js`);
+  *unverified in Premiere*, as is `sp-picker` itself.
 - **Unpinning** (decided 2026-10-14): **there is no event before Premiere
   quits and nothing can delay a quit** (no app-quit event in the Premiere
   UXP docs; panel `destroy()` is synchronous). So:
