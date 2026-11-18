@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /*
  * Iterate on the "Make SPT Proxies" automation against REAL Shade, REST only
- * (no MCP), through the plugin's own setup code.
+ * (no MCP), through the plugin's own setup code (its linking part: the
+ * `feature` option is what Shade Premiere Tools' setup needs, and Shade
+ * Linker's ignores).
  *
  *   node tools/proxyflow-lab.js inspect            raw fields + automations on the drive,
  *                                                  and the working reference automation
@@ -139,9 +141,9 @@ async function reset() {
 
 async function runSetup() {
   const drive = { id: DRIVE, name: DRIVE.slice(0, 8) };
-  show("check (before)", await setup(drive, { check: true }));
-  show("setup", await setup(drive));
-  show("check (after)", await setup(drive, { check: true }));
+  show("check (before)", await setup(drive, { feature: "linking", check: true }));
+  show("setup", await setup(drive, { feature: "linking" }));
+  show("check (after)", await setup(drive, { feature: "linking", check: true }));
   for (const a of await ours()) show(`ours ${a.id} (raw)`, await shade.getAutomation(a.id));
 }
 
