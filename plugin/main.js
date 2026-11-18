@@ -1,5 +1,5 @@
 /*
- * Shade Premiere Tools -- plugin entry point.
+ * SPT Lite -- plugin entry point.
  *
  * Module scope runs at Premiere launch, with no panel open (proven in
  * premiere-events: an installed plugin loaded at launch and ran 10+ hours,
@@ -14,26 +14,21 @@
  * Requires are guarded and reported. A require that throws at module scope
  * aborts the file silently: no log, no panel, nothing to debug against.
  */
-let log, attach, recent, dataFolderPath, shade, resolve, sync, settings, enable, tracker, link, projectpins, exporter, comments, uxp, entrypoints;
+let log, attach, recent, dataFolderPath, shade, settings, enable, link, projectpins, uxp, entrypoints;
 let loadError = null;
 try {
   ({ log, attach, recent, dataFolderPath } = require("./log.js"));
   shade = require("./shade.js");
-  resolve = require("./resolve.js");
-  sync = require("./sync.js");
   settings = require("./settings.js");
-  tracker = require("./tracker.js");
   link = require("./link.js");
   projectpins = require("./projectpins.js");
   enable = require("./enable.js");
-  exporter = require("./export.js");
-  comments = require("./comments.js");
   uxp = require("uxp");
   ({ entrypoints } = uxp);
 } catch (e) {
   loadError = e;
   // eslint-disable-next-line no-console
-  console.error("Shade Premiere Tools failed to load a module:", e && (e.stack || e.message));
+  console.error("SPT Lite failed to load a module:", e && (e.stack || e.message));
 }
 
 let ppro = null;
@@ -67,8 +62,7 @@ async function setKey(value) {
   if (!/^sk_\S+$/.test(key)) throw new Error("that does not look like a Shade key (sk_...)");
   await uxp.storage.secureStorage.setItem(KEY_ITEM, key);
   cachedKey = key;
-  resolve.forget();
-  sync.forget();
+  link.forget();
 }
 
 /* ----------------------------------------------------------------- events */
@@ -92,20 +86,18 @@ function bind(label, register) {
 function wireGlobalEvents() {
   const em = ppro.EventManager;
   if (!em || typeof em.addGlobalEventListener !== "function") {
-    log("EventManager unavailable; syncing is manual only");
+    log("EventManager unavailable; nothing is linked or pinned automatically");
     return;
   }
   const C = ppro.Constants || {};
   const PE = C.ProjectEvent || {};
-  const SE = C.SequenceEvent || {};
   const OE = C.OperationCompleteEvent || {};
 
   // Opening a project seeds linking (what is already there is left alone),
-  // asks once whether to pin its Shade media, and checks its drive for the
-  // fields of whatever features are on. Each is a no-op when switched off.
+  // asks once whether to pin its Shade media, and, with linking on, checks
+  // its drive for the link fields. Each is a no-op when switched off.
   const onOpened = () => {
     bindDirtyToActiveProject();
-    tracker.requestNow("project_opened");
     link.seed(ppro);
     projectpins.offerSoon(ppro);
     enable.onProjectOpened();
@@ -121,23 +113,21 @@ function wireGlobalEvents() {
   wire("ProjectEvent.CLOSED", PE.CLOSED, (event) => projectpins.onClosed(event));
   wire("OperationCompleteEvent.IMPORT_MEDIA_COMPLETE", OE.IMPORT_MEDIA_COMPLETE, () => {
     bindDirtyToActiveProject();
-    tracker.afterImport();
     link.onImport(ppro);
   });
-  wire("SequenceEvent.ACTIVATED", SE.ACTIVATED, () => tracker.request("sequence_activated"));
 
   log(`bound ${bound.length} global event(s): ${bound.join(", ") || "none"}`);
 }
 
 /*
- * Linking's backstop for imports the import event missed. Its own settle
- * time, separate from tracking's debounce, and like it a timer that Premiere
- * may throttle when idle -- fine, since the import event is the fast path.
+ * Linking's backstop for imports the import event missed, and the walk that
+ * finds clips newly put on a timeline (pinWhen "timeline"). Debounced, on a
+ * timer Premiere may throttle when idle -- fine, since the import event is
+ * the fast path.
  */
 const LINK_SETTLE_MS = 2000;
 let linkTimer = null;
 function onDirty() {
-  tracker.request("dirty");
   clearTimeout(linkTimer);
   linkTimer = setTimeout(() => link.onDirty(ppro), LINK_SETTLE_MS);
 }
@@ -163,7 +153,7 @@ async function bindDirtyToActiveProject() {
 
 async function boot() {
   if (loadError) return;
-  log(`Shade Premiere Tools starting (premierepro: ${ppro ? "ok" : "UNAVAILABLE"})`);
+  log(`SPT Lite starting (premierepro: ${ppro ? "ok" : "UNAVAILABLE"})`);
   log("data folder:", await dataFolderPath());
   if (!ppro) return;
 
@@ -171,34 +161,17 @@ async function boot() {
   await settings.load();
   // Files pinned on import belong to their project, so its unpin covers them.
   link.setOnPinned(projectpins.remember);
-  // Shade Desktop knows which drive it mounted where; tracking asks it before
-  // matching volume names, which go stale when a drive is renamed.
-  resolve.setMountSource(() => require("./shadefs.js").mounts());
-
-  // Every run reports which project it saw, so a switch that arrived without
-  // an OPENED event still moves DIRTY to the right project.
-  tracker.init(ppro, {
-    hasKey: async () => !!(await getKey()),
-    onProjectSeen: (guid) => { if (guid !== dirtyBoundTo) bindDirtyToActiveProject(); },
-    onNeedsSetup: (driveId) => enable.onNeedsSetup("tracking", driveId),
-    onOtherDrives: (others, scan) => enable.warnOtherDrives(others, scan)
-  });
-  link.setOnNeedsSetup((driveId) => enable.onNeedsSetup("linking", driveId));
+  link.setOnNeedsSetup((driveId) => enable.onNeedsSetup(driveId));
   enable.init(ppro, { hasKey: async () => !!(await getKey()) });
-  exporter.init(ppro, { hasKey: async () => !!(await getKey()) });
-  comments.init(ppro, { hasKey: async () => !!(await getKey()) });
-  // Shade comments on clips just imported, after linking and pinning.
-  link.setOnAfterImport((clips) => comments.onImported(clips));
 
   wireGlobalEvents();
   await bindDirtyToActiveProject();
 
-  if (!(await getKey()) && (settings.get("tracking") || settings.get("linking"))) {
-    log("no API key yet: add one in the Shade Premiere Tools panel's Settings tab");
+  if (!(await getKey()) && settings.get("linking")) {
+    log("no API key yet: add one in the SPT Lite panel's Settings tab");
   }
-  // Whatever is already open is unknown until it is scanned, and there will
-  // be no DIRTY until someone touches it.
-  tracker.requestNow("startup");
+  // Whatever is already open is seen now, so only what arrives later is
+  // linked or pinned; there will be no DIRTY until someone touches it.
   link.seed(ppro);
   projectpins.offerSoon(ppro);
   enable.onProjectOpened();
@@ -208,16 +181,12 @@ async function boot() {
 
 let wired = false;
 let renderTimer = null;
-let shownWhy = null;         // the not-tracking reason currently in the note
 // The key field is open because the user asked to change the key. render()
 // runs every second and would otherwise close it again straight away,
 // since a key is already saved (reported 2026-09-29: it showed for half a
 // second and vanished).
 let editingKey = false;
 
-const FEATURES = ["tracking", "linking"];
-const PICKERS = ["pinMode", "sourceComments"];
-const FEATURE_LABEL = { tracking: "project tracking", linking: "proxy linking" };
 
 /*
  * Auto-pinning is one picker, Off / on import / when used in a timeline,
@@ -261,74 +230,44 @@ function wirePanel() {
   }
 
   async function render() {
-    const st = tracker.status();
     const key = await getKey();
     const on = settings.get();
+    const ls = link.status();
+    const ps = projectpins.status();
     $("keyrow").style.display = !key || editingKey ? "flex" : "none";
     $("changekey").style.display = key ? "block" : "none";
     set("changekey", editingKey ? "cancel" : "change API key");
-    if (!toggling) for (const f of FEATURES) $("set-" + f).checked = !!on[f];
-    for (const k of PICKERS) renderPicker(k, k === "pinMode" ? pinModeOf(on) : on[k]);
+    if (!toggling) $("set-linking").checked = !!on.linking;
+    renderPicker("pinMode", pinModeOf(on));
     set("pinModeAbout", PIN_ABOUT[pinModeOf(on)]);
 
-    const ex = exporter.status();
-    $("export").className = "export" + (ex.busy ? " busy" : "");
-    set("export", ex.busy ? "Exporting…" : "Export to Shade");
-    if (ex.text) set("exportnote", ex.text);
-
-    // Only what is switched on is shown. Pinning needs no key; tracking
-    // and linking do.
+    // Only what is switched on is shown. Pinning needs no key; linking does.
     const show = (id, yes, how) => { $(id).style.display = yes ? (how || "block") : "none"; };
-    show("g-tracking", on.tracking);
     show("g-linking", on.linking, "flex");
     show("g-autopin", on.autoPin, "flex");
-    show("sync", on.tracking);
     show("pinactions", on.autoPin, "flex");
 
-    const needs = on.tracking ? ((st.lastSummary && st.lastSummary.needsSetup) || []) : [];
     let bad = null;
     if (!ppro) bad = "premierepro unavailable";
-    else if (!key && (on.tracking || on.linking)) bad = "add your Shade API key in Settings";
-    else if (needs.length) bad = `"${resolve.driveName(needs[0])}" isn't set up`;
-    else if (on.tracking && st.lastError) bad = st.lastError;
-    else if (on.linking && link.status().lastError) bad = link.status().lastError;
+    else if (!key && on.linking) bad = "add your Shade API key in Settings";
+    else if ((on.linking || on.autoPin) && ls.lastError) bad = ls.lastError;
+    else if (on.autoPin && ps.lastError) bad = ps.lastError;
 
-    // Not tracking a local project is correct behaviour, not a fault: the
-    // lamp stays green and the reason is shown in place of "tracking".
-    const skip = on.tracking && st.lastSummary && st.lastSummary.status !== "tracked" && st.lastSummary.status;
     lamp.className = "lamp " + (bad ? "bad" : "ok");
-    const idle = on.tracking ? (skip ? "not tracking" : "tracking")
-               : (on.linking || on.autoPin) ? "on" : "all features off";
-    set("state", bad || (st.running ? "syncing…" : idle), "state" + (bad ? " bad" : ""));
-    // Shown in the note line, but never over a message from a button.
-    const noteEl = $("note");
-    const why = !bad && skip ? tracker.notTrackedText(skip) : null;
-    if (why && (noteEl.textContent === "" || noteEl.textContent === shownWhy)) {
-      note(why);
-      shownWhy = why;
-    } else if (!why && shownWhy && noteEl.textContent === shownWhy) {
-      note("");
-      shownWhy = null;
-    }
+    const idle = on.linking && on.autoPin ? "linking · pinning"
+               : on.linking ? "linking" : on.autoPin ? "pinning" : "all features off";
+    set("state", bad || idle, "state" + (bad ? " bad" : ""));
 
-    const s = st.lastSummary;
-    const t = st.lastScan;
     const num = (id, v) => set(id, v === undefined || v === null ? "—" : String(v),
                                "v" + (v ? "" : " zero"));
-    set("n-project", st.project || "—", "v");
-    num("n-files", t ? t.files : null);
-    num("n-shade", s ? s.onShade : null);
-    num("n-used", t ? t.used : null);
-    num("n-written", s ? s.written : null);
-    const ls = link.status();
+    num("n-mounts", ls.mounts);
     num("n-linked", ls.linked);
-    num("n-pinned", ls.pinned + projectpins.status().pinned);
+    num("n-pinned", ls.pinned + ps.pinned);
+    num("n-failed", ls.failed);
 
-    if (st.lastRunAt) {
-      set("meta", `last sync ${new Date(st.lastRunAt).toTimeString().slice(0, 8)} · ${st.runs} this session`);
-    } else {
-      set("meta", st.running ? "syncing…" : "not synced yet");
-    }
+    set("meta", ls.last && ls.lastAt
+      ? `last: ${ls.last} at ${new Date(ls.lastAt).toTimeString().slice(0, 8)}`
+      : "nothing new this session");
   }
 
   const on = (id, fn) => {
@@ -346,26 +285,24 @@ function wirePanel() {
   on("tab-status", () => showTab("status"));
   on("tab-settings", () => showTab("settings"));
 
-  // Feature switches. Turning tracking or linking on checks the active
-  // project's drive first and may ask to add fields (enable.js); it can
-  // come back off, and the note says why.
-  for (const f of FEATURES) {
-    // A property, not addEventListener: the panel can be wired again after
-    // destroy(), and a second listener would run every switch twice.
-    $("set-" + f).onchange = (e) => {
-      const want = !!(e.target && e.target.checked);
-      toggling = true;
-      Promise.resolve()
-        .then(async () => {
-          await settings.set(f, want);
-          if (!want) return note(`${FEATURE_LABEL[f]} is off`);
-          note("checking the drive…");
-          note(await enable.switchOn(f));
-        })
-        .catch((err) => note(err.message))
-        .then(() => { toggling = false; render(); });
-    };
-  }
+  // The linking switch. Turning it on checks the active project's drive
+  // first and may ask to add fields (enable.js); it can come back off, and
+  // the note says why.
+  // A property, not addEventListener: the panel can be wired again after
+  // destroy(), and a second listener would run every switch twice.
+  $("set-linking").onchange = (e) => {
+    const want = !!(e.target && e.target.checked);
+    toggling = true;
+    Promise.resolve()
+      .then(async () => {
+        await settings.set("linking", want);
+        if (!want) return note(`${enable.LABEL} is off`);
+        note("checking the drive…");
+        note(await enable.switchOn());
+      })
+      .catch((err) => note(err.message))
+      .then(() => { toggling = false; render(); });
+  };
 
   on("savekey", async () => {
     const input = $("key");
@@ -375,7 +312,6 @@ function wirePanel() {
     note("checking key…");
     const workspaces = await shade.listWorkspaces();
     note(`key saved · sees ${workspaces.length} workspace(s)`);
-    tracker.requestNow("key_saved");
     render();
   });
 
@@ -385,18 +321,12 @@ function wirePanel() {
     render();
   });
 
-  on("sync", () => {
-    bindDirtyToActiveProject();
-    tracker.requestNow("manual");
-    note("");
-  });
-
   on("pinproject", async () => {
     note("counting…");
     note(await projectpins.offerPin(ppro, { always: true }));
   });
 
-  // The pickers (Settings): select the item matching the setting.
+  // The auto-pinning picker (Settings): select the item matching the setting.
   function renderPicker(key, value) {
     const picker = $("set-" + key);
     if (!picker) return;
@@ -407,36 +337,15 @@ function wirePanel() {
       }
     }
   }
-  const PICKED = {
-    pinMode: (v) => ({ off: "auto-pinning is off", import: "auto-pinning: on import",
-                       timeline: "auto-pinning: when used in a timeline" })[v],
-    sourceComments: (v) => `comments on imported clips: ${v}`
+  const PICKED = { off: "auto-pinning is off", import: "auto-pinning: on import",
+                   timeline: "auto-pinning: when used in a timeline" };
+  $("set-pinMode").onchange = (e) => {
+    const t = e && e.target;
+    const value = (t && t.value) || (t && t.selectedIndex >= 0 && PIN_MODES[t.selectedIndex]);
+    setPinMode(value)
+      .then(() => { note(PICKED[value]); render(); })
+      .catch((err) => note(err.message));
   };
-  const CHOICES_OF = { pinMode: PIN_MODES, sourceComments: settings.CHOICES.sourceComments };
-  const SAVE = { pinMode: setPinMode, sourceComments: (v) => settings.set("sourceComments", v) };
-  for (const key of PICKERS) {
-    const picker = $("set-" + key);
-    if (!picker) continue;
-    picker.onchange = (e) => {
-      const t = e && e.target;
-      const value = (t && t.value) || (t && t.selectedIndex >= 0 && CHOICES_OF[key][t.selectedIndex]);
-      SAVE[key](value)
-        .then(() => { note(PICKED[key](value)); render(); })
-        .catch((err) => note(err.message));
-    };
-  }
-
-  on("export", async () => {
-    if (exporter.status().busy) return;
-    note("");
-    note(await exporter.run());
-    render();
-  });
-
-  on("importcomments", async () => {
-    note("reading comments…");
-    note(await comments.importTimeline());
-  });
 
   on("unpinproject", async () => {
     note("checking…");
@@ -459,7 +368,7 @@ function wirePanel() {
  */
 async function exportLog(text) {
   try {
-    const file = await uxp.storage.localFileSystem.getFileForSaving("shade-premiere-tools.log", {
+    const file = await uxp.storage.localFileSystem.getFileForSaving("spt-lite.log", {
       types: ["log", "txt"]
     });
     if (!file) return "cancelled";
@@ -472,7 +381,7 @@ async function exportLog(text) {
 
 if (entrypoints) entrypoints.setup({
   panels: {
-    sptPanel: {
+    sptLitePanel: {
       create() { wirePanel(); },
       show() { wirePanel(); },
       hide() {},

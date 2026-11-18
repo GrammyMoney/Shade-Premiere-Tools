@@ -1,10 +1,12 @@
 /*
- * The active project and its clip items, for linking and pinning.
+ * The active project, its clip items, and which of them are on a timeline.
  *
- * scan.js walks the project for tracking and keeps only media paths. Linking
- * and pinning need the ClipProjectItem itself (attachProxy, getProxyPath), so
- * they walk with this instead. Every Premiere call is wrapped: one item that
- * throws must not abandon the rest of the project.
+ * Premiere sends no event when an item is added or a timeline changes, so
+ * the whole project is walked instead (cheap: 129 items across 5 sequences
+ * measured 24ms). Every Premiere call is wrapped: one item that throws must
+ * not abandon the rest of the project.
+ *
+ * No uxp require here, so it loads under plain Node with Premiere faked.
  */
 
 async function safe(fn, fallback) {
@@ -42,4 +44,48 @@ async function activeProject(ppro) {
   };
 }
 
-module.exports = { safe, clips, activeProject };
+/*
+ * Adds to usedIds the project-item id of every clip on any sequence's video
+ * or audio tracks. Returns the number of sequences.
+ *
+ * Only direct timeline use is counted: nested sequences, multicam, Dynamic
+ * Link and Motion Graphics templates can all hide a clip.
+ */
+async function walkSequences(ppro, project, usedIds) {
+  const clipType =
+    (ppro.Constants && ppro.Constants.TrackItemType &&
+     ppro.Constants.TrackItemType.CLIP !== undefined)
+      ? ppro.Constants.TrackItemType.CLIP
+      : 1;  // documented: Empty 0, Clip 1, Transition 2, Preview 3, Feedback 4
+
+  const seqs = await safe(() => project.getSequences(), []);
+  for (const seq of seqs) {
+    const groups = [
+      [() => seq.getVideoTrackCount(), (i) => seq.getVideoTrack(i)],
+      [() => seq.getAudioTrackCount(), (i) => seq.getAudioTrack(i)]
+    ];
+    for (const [countFn, trackFn] of groups) {
+      const count = await safe(countFn, 0);
+      for (let i = 0; i < count; i++) {
+        const track = await safe(() => trackFn(i), null);
+        if (!track) continue;
+        const items = await safe(() => track.getTrackItems(clipType, false), []);
+        for (const ti of items) {
+          const pi = await safe(() => ti.getProjectItem(), null);
+          if (!pi) continue;
+          const id = await safe(() => pi.getId(), null);
+          if (id !== null && id !== undefined) usedIds.add(String(id));
+        }
+      }
+    }
+  }
+  return seqs.length;
+}
+
+/* Premiere's Project.name includes ".prproj", which is noise in a prompt. */
+function projectDisplayName(name) {
+  if (typeof name !== "string") return null;
+  return name.replace(/\.prproj$/i, "").trim() || null;
+}
+
+module.exports = { safe, clips, activeProject, walkSequences, projectDisplayName };

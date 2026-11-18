@@ -14,7 +14,7 @@ const { platform } = require("./platform.js");
 
 const MEMORY_LINES = 400;
 const MAX_FILE_BYTES = 256 * 1024;
-const FILE_NAME = "shade-premiere-tools.log";
+const FILE_NAME = "spt-lite.log";
 
 const lines = [];
 let sink = null;          // the panel, when it exists

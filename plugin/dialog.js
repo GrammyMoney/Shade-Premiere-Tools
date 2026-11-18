@@ -38,7 +38,7 @@ function ask(question) {
   return run;
 }
 
-async function show({ title = "Shade Premiere Tools", heading, lines = [], yes = "Yes", no = "No", checkbox = null }) {
+async function show({ title = "SPT Lite", heading, lines = [], yes = "Yes", no = "No", checkbox = null }) {
   if (typeof document === "undefined") throw new Error("no document to show a dialog in");
   const el = (tag, text, style) => {
     const e = document.createElement(tag);

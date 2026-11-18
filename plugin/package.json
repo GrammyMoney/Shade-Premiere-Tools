@@ -1,8 +1,8 @@
 {
-  "name": "shade-premiere-tools-plugin",
+  "name": "spt-lite-plugin",
   "private": true,
   "version": "0.1.0",
-  "description": "UXP plugin: reports which Shade assets each Premiere project imported and used.",
+  "description": "UXP plugin: links Shade proxies and pins Shade media in Premiere Pro.",
   "scripts": {
     "test": "node --test test/*.test.js"
   }

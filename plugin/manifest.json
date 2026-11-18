@@ -1,7 +1,7 @@
 {
-  "id": "com.grammymoney.shadepremieretools",
-  "name": "Shade Premiere Tools",
-  "version": "0.2.0",
+  "id": "com.grammymoney.sptlite",
+  "name": "SPT Lite",
+  "version": "0.1.0",
   "main": "index.html",
   "manifestVersion": 5,
   "host": {
@@ -11,14 +11,26 @@
   "entrypoints": [
     {
       "type": "panel",
-      "id": "sptPanel",
+      "id": "sptLitePanel",
       "label": {
-        "default": "Shade Premiere Tools"
+        "default": "SPT Lite"
       },
-      "minimumSize": { "width": 240, "height": 220 },
-      "maximumSize": { "width": 2400, "height": 2400 },
-      "preferredDockedSize": { "width": 320, "height": 380 },
-      "preferredFloatingSize": { "width": 380, "height": 440 }
+      "minimumSize": {
+        "width": 240,
+        "height": 220
+      },
+      "maximumSize": {
+        "width": 2400,
+        "height": 2400
+      },
+      "preferredDockedSize": {
+        "width": 320,
+        "height": 380
+      },
+      "preferredFloatingSize": {
+        "width": 380,
+        "height": 440
+      }
     }
   ],
   "requiredPermissions": {

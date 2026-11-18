@@ -45,7 +45,7 @@ const shade = require("./shade.js");
 const shadefs = require("./shadefs.js");
 const settings = require("./settings.js");
 const { safe, clips, activeProject } = require("./walk.js");
-const { walkSequences } = require("./scan.js");
+const { walkSequences } = require("./walk.js");
 const { locate, shadePath, localPath } = require("./mounts.js");
 const { linkedIds, pinnableIno, decide, fieldByName, isPinned } = require("./pins.js");
 
@@ -63,7 +63,6 @@ const onTimeline = new Map();  // project guid -> Set of item ids already on a t
 let queue = Promise.resolve();
 let onPinned = () => {};     // (project, [{ path, ino, size, mount, rest }])
 let onNeedsSetup = () => {}; // (driveId): linking is on, the drive lacks both fields
-let onAfterImport = () => {}; // ([{ clip, name, mount, rest, asset? }]): new Shade clips, after linking
 
 const stats = {
   linked: 0, pinned: 0, skipped: 0, failed: 0,
@@ -223,8 +222,7 @@ async function fieldIds(driveId) {
 }
 
 async function processAll(items) {
-  // Source comments ride on this walk too (comments.js, via onAfterImport).
-  if (!settings.get("linking") && !pinOnImport() && settings.get("sourceComments") === "never") return;
+  if (!settings.get("linking") && !pinOnImport()) return;
   let ms;
   try {
     ms = await mounts();
@@ -235,21 +233,14 @@ async function processAll(items) {
     return;
   }
   stats.lastError = null;
-  const shadeClips = [];
   for (const item of items) {
     try {
-      const done = await processOne(item, ms);
-      if (done) shadeClips.push(done);
+      await processOne(item, ms);
     } catch (e) {
       stats.failed++;
       stats.lastError = e.message;
       log(`${item.name}: ${e.message}`);
     }
-  }
-  // Not awaited: it may ask a question, and the next walk must not wait on it.
-  if (shadeClips.length) {
-    Promise.resolve().then(() => onAfterImport(shadeClips))
-      .catch((e) => log("after import:", e.message));
   }
 }
 
@@ -265,7 +256,7 @@ async function processOne(item, ms) {
   if (!settings.get("linking")) {
     waiting.delete(item.id);
     await pinOnly(item, path, mount);
-    return { clip, name, mount, rest, asset: null };
+    return;
   }
 
   const asset = await shade.assetByPath(mount.driveId, shadePath(mount.driveId, rest));
@@ -329,7 +320,6 @@ async function processOne(item, ms) {
 
   await addPin(path);
   await sendPins(item, pins);
-  return { clip, name, mount, rest, asset };
 }
 
 /* Auto-pinning alone: the clip and whatever proxy it already has. */
@@ -382,10 +372,9 @@ function status() { return Object.assign({}, stats); }
 
 function setOnPinned(fn) { onPinned = fn; }
 function setOnNeedsSetup(fn) { onNeedsSetup = fn; }
-function setOnAfterImport(fn) { onAfterImport = fn; }
 
 /* Field ids are re-read after setup creates them. */
 function forget() { fields.clear(); }
 
 module.exports = { seed, onImport, onDirty, status, timelineAdditions, fieldIds, getAssetOrNull, setOnPinned,
-                   setOnNeedsSetup, setOnAfterImport, forget, FIELD_NAMES };
+                   setOnNeedsSetup, forget, FIELD_NAMES };

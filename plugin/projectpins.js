@@ -36,11 +36,9 @@ const shadefs = require("./shadefs.js");
 const dialog = require("./dialog.js");
 const settings = require("./settings.js");
 const link = require("./link.js");
-const { safe, clips, activeProject } = require("./walk.js");
-const { walkSequences } = require("./scan.js");
+const { safe, clips, activeProject, walkSequences, projectDisplayName } = require("./walk.js");
 const { locate, shadePath, localPath } = require("./mounts.js");
 const { linkedIds, pinnableIno, isPinned, tally, formatBytes } = require("./pins.js");
-const { projectDisplayName } = require("./paths.js");
 
 const LOOKUPS_AT_ONCE = 6;     // Shade REST requests in flight while counting
 const OPEN_SETTLE_MS = 1500;   // let Premiere finish opening before walking

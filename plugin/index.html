@@ -75,23 +75,13 @@
   .setting .about { color: #8a8a86; margin-left: 24px; }
   .section { color: #8a8a86; margin-top: 4px; margin-bottom: 8px; }
 
-  /* Export: the one big action. Purple, full width. */
-  .export {
-    background-color: #7b3ff2; color: #ffffff; font-weight: bold; font-size: 13px;
-    text-align: center; border-radius: 6px; padding: 12px 8px; margin-bottom: 6px;
-  }
-  .export:hover { background-color: #8d57f5; }
-  .export:active { background-color: #6a30dc; }
-  .export.busy { background-color: #4b3178; color: #c9b8ee; }
-  .exportnote { color: #8a8a86; margin-bottom: 8px; min-height: 16px; word-wrap: break-word; }
-
   .link { color: #8a8a86; margin-top: 10px; }
   .link:hover { color: #e8e6e1; }
   .note { color: #8a8a86; margin-top: 10px; word-wrap: break-word; }
 </style>
 
 <div class="status">
-  <div class="title">SPT</div>
+  <div class="title">SPT Lite</div>
   <div class="state" id="state">starting…</div>
   <div class="lamp" id="lamp"><div class="mid"><div class="core"></div></div></div>
 </div>
@@ -104,29 +94,17 @@
 </div>
 
 <div id="view-status">
-  <div class="export" id="export">Export to Shade</div>
-  <div class="exportnote" id="exportnote"></div>
-  <div class="actions" style="margin-bottom: 12px;">
-    <div class="act" id="importcomments">import comments</div>
-  </div>
-
   <div class="stats">
-    <div id="g-tracking">
-      <div class="stat"><div class="k">project</div><div class="v" id="n-project">—</div></div>
-      <div class="stat"><div class="k">files in project</div><div class="v" id="n-files">—</div></div>
-      <div class="stat"><div class="k">on Shade</div><div class="v" id="n-shade">—</div></div>
-      <div class="stat"><div class="k">on a timeline</div><div class="v" id="n-used">—</div></div>
-      <div class="stat"><div class="k">written last sync</div><div class="v" id="n-written">—</div></div>
-    </div>
+    <div class="stat"><div class="k">Shade drives mounted</div><div class="v" id="n-mounts">—</div></div>
     <div class="stat" id="g-linking"><div class="k">proxies linked</div><div class="v" id="n-linked">—</div></div>
     <div class="stat" id="g-autopin"><div class="k">files pinned</div><div class="v" id="n-pinned">—</div></div>
+    <div class="stat"><div class="k">failed</div><div class="v" id="n-failed">—</div></div>
   </div>
 
   <div class="meta" id="meta"></div>
 
   <div class="actions">
     <div class="act" id="logs">get logs</div>
-    <div class="act" id="sync">sync now</div>
   </div>
 
   <div class="actions" id="pinactions" style="margin-top: 6px;">
@@ -136,7 +114,7 @@
 </div>
 
 <!--
-  Turning tracking or linking on checks the active project's drive and asks
+  Turning linking on checks the active project's drive and asks
   before adding fields (enable.js). sp-checkbox, not a switch: sp-switch is
   not among UXP's built-in Spectrum widgets as far as we know.
 -->
@@ -157,25 +135,9 @@
     <div class="about" style="margin-left: 0;" id="pinModeAbout"></div>
   </div>
   <div class="setting">
-    <sp-checkbox id="set-tracking">Project tracking</sp-checkbox>
-    <div class="about">Mark Shade assets Imported? / Used? and link them to this project's record in Premiere Projects.</div>
-  </div>
-  <div class="setting">
     <sp-checkbox id="set-linking">Proxy linking</sp-checkbox>
     <div class="about">Attach a clip's Linked Proxy (or Linked Hi Res) in Premiere when it is imported.</div>
   </div>
-  <div class="setting">
-    <div class="section">Shade comments on imported clips</div>
-    <sp-picker id="set-sourceComments" size="s" label="Source comments">
-      <sp-menu slot="options">
-        <sp-menu-item value="ask">Ask</sp-menu-item>
-        <sp-menu-item value="always">Always add as clip markers</sp-menu-item>
-        <sp-menu-item value="never">Never</sp-menu-item>
-      </sp-menu>
-    </sp-picker>
-    <div class="about" style="margin-left: 0;">Clip markers show in the Source Monitor. "Do this every time" in the dialog sets this too.</div>
-  </div>
-
   <div class="rule"></div>
   <div class="section">Shade API key</div>
   <div class="keyrow" id="keyrow" style="display: none;">

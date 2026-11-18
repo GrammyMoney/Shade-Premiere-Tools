@@ -18,7 +18,7 @@
 
 const NAME = "Make SPT Proxies";
 const PRESET = "h264_1080p";
-const DESCRIPTION = "Created by Shade Premiere Tools. Run it on video clips: it makes a " +
+const DESCRIPTION = "Created by SPT Lite. Run it on video clips: it makes a " +
   `${PRESET} proxy in a "proxies" folder next to each clip and links the two ` +
   "(Linked Proxy on the clip, Linked Hi Res on the proxy), so Premiere attaches the proxy on import.";
 
