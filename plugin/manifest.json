@@ -1,7 +1,7 @@
 {
-  "id": "com.grammymoney.sptlite",
-  "name": "SPT Lite",
-  "version": "0.1.0",
+  "id": "com.grammymoney.shadelinker",
+  "name": "Shade Linker",
+  "version": "0.2.0",
   "main": "index.html",
   "manifestVersion": 5,
   "host": {
@@ -11,9 +11,9 @@
   "entrypoints": [
     {
       "type": "panel",
-      "id": "sptLitePanel",
+      "id": "shadeLinkerPanel",
       "label": {
-        "default": "SPT Lite"
+        "default": "Shade Linker"
       },
       "minimumSize": {
         "width": 240,

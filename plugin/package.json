@@ -1,5 +1,5 @@
 {
-  "name": "spt-lite-plugin",
+  "name": "shade-linker-plugin",
   "private": true,
   "version": "0.1.0",
   "description": "UXP plugin: links Shade proxies and pins Shade media in Premiere Pro.",

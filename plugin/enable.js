@@ -115,7 +115,7 @@ async function ensure(drive, { force = false } = {}) {
     await dialog.notify({
       heading: denied ? `You can't add fields to "${drive.name}"` : `Setting up "${drive.name}" failed`,
       lines: [denied
-        ? "Ask a drive owner to turn on proxy linking in their SPT Lite panel."
+        ? "Ask a drive owner to turn on proxy linking in their Shade Linker panel."
         : e.message]
     });
     return false;

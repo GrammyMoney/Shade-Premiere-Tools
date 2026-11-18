@@ -1,4 +1,4 @@
-# SPT Lite
+# Shade Linker
 
 A Premiere Pro panel (UXP) for media on mounted Shade drives. It does two
 things, each switched on or off in the panel's **Settings** tab:
@@ -29,12 +29,15 @@ This is the linking-and-pinning part of **Shade Premiere Tools**, on its
 own. It has its own plugin id, so both can be installed, but **enable only
 one**: otherwise clips are linked and pinned twice and both panels ask.
 
+Version 0.2.0 replaces the earlier Shade Linker (0.1.0): same plugin id, so
+installing it upgrades that one in place.
+
 ## Install
 
 Build the installer, then double-click it (Creative Cloud installs it for
 Premiere; restart Premiere afterwards):
 ```
-./scripts/package-ccx.sh      # -> dist/com.grammymoney.sptlite_premierepro.ccx
+./scripts/package-ccx.sh      # -> dist/com.grammymoney.shadelinker_premierepro.ccx
 ```
 It is not signed or listed on Adobe Exchange, so Creative Cloud may warn
 that it is from an unknown developer.
@@ -45,7 +48,7 @@ instead. Don't have both at once: they share a plugin id.
 ## Setup
 
 1. Install the panel (above).
-2. In Premiere: **Window → UXP Plugins → SPT Lite**, then **Settings**.
+2. In Premiere: **Window → UXP Plugins → Shade Linker**, then **Settings**.
 3. For linking: paste your API key (Shade → Settings → My account → API
    keys), **save**, and tick **Proxy linking** with a project on the drive
    open. If the drive needs anything, you're asked first.

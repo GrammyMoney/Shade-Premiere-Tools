@@ -21,8 +21,8 @@ const proxyflow = require("./proxyflow.js");
 const LINK_FIELDS = { proxy: "Linked Proxy", hiRes: "Linked Hi Res" };   // as link.js
 
 const DESCRIBE = {
-  [LINK_FIELDS.proxy]: "On a hi-res file: its proxy. SPT Lite attaches it in Premiere on import.",
-  [LINK_FIELDS.hiRes]: "On a proxy: its hi-res file. SPT Lite attaches it in Premiere on import."
+  [LINK_FIELDS.proxy]: "On a hi-res file: its proxy. Shade Linker attaches it in Premiere on import.",
+  [LINK_FIELDS.hiRes]: "On a proxy: its hi-res file. Shade Linker attaches it in Premiere on import."
 };
 
 const targetOf = (f) => (f && f.relation_config && f.relation_config.target) || null;

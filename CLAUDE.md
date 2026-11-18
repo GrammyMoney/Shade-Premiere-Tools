@@ -1,4 +1,4 @@
-# SPT Lite -- project context
+# Shade Linker -- project context
 
 A Premiere Pro panel (UXP) that does two things for media on mounted Shade
 drives: **proxy linking** and **auto-pinning**. Nothing else. Read the whole
@@ -13,11 +13,17 @@ pinning code is SPT's, unchanged. SPT itself lives on `main` /
 `linker-and-project-pins`; its CLAUDE.md there holds the history of
 everything removed.
 
-**Own plugin id: `com.grammymoney.sptlite`, name "SPT Lite", panel
-`sptLitePanel`.** Not `com.grammymoney.shadelinker`: that id belongs to the
-older Shade-Linker repo's plugin, and reusing it would replace that install.
-SPT Lite can be installed beside SPT, but **don't enable both**: each would
-link and pin the same clips and both would ask about pinning.
+**Plugin id `com.grammymoney.shadelinker`, name "Shade Linker", panel
+`shadeLinkerPanel`, version 0.2.0** (decided 2026-11-18). That id and
+panel id are the older Shade-Linker repo's plugin (0.1.0), taken over on
+purpose: installing this upgrades it in place, so editors have one Shade
+Linker, not two plugins of the same name. Briefly called "SPT Lite"
+before the first release; "Lite" was dropped as the wrong message. The
+automation keeps the name "Make SPT Proxies": it's the standard shared
+with SPT, and renaming it would make a second one on drives that have it.
+Shade Linker can be installed beside SPT (different ids), but **don't
+enable both**: each would link and pin the same clips and both would ask
+about pinning.
 
 ## What it does
 
@@ -365,7 +371,7 @@ plugin/                the UXP plugin. Manifest v5, flat, no build step.
   pins.js              link/pin rules, pin-list parsing, prompt numbers. Pure, tested
   shade.js             REST client: auth header, retries, the routes used
   platform.js          file I/O and the data folder (UXP; swapped in tests)
-  log.js               queued log file, spt-lite.log
+  log.js               queued log file, shade-linker.log
   test/                node --test
 ```
 

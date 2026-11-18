@@ -1,5 +1,5 @@
 /*
- * SPT Lite -- plugin entry point.
+ * Shade Linker -- plugin entry point.
  *
  * Module scope runs at Premiere launch, with no panel open (proven in
  * premiere-events: an installed plugin loaded at launch and ran 10+ hours,
@@ -28,7 +28,7 @@ try {
 } catch (e) {
   loadError = e;
   // eslint-disable-next-line no-console
-  console.error("SPT Lite failed to load a module:", e && (e.stack || e.message));
+  console.error("Shade Linker failed to load a module:", e && (e.stack || e.message));
 }
 
 let ppro = null;
@@ -153,7 +153,7 @@ async function bindDirtyToActiveProject() {
 
 async function boot() {
   if (loadError) return;
-  log(`SPT Lite starting (premierepro: ${ppro ? "ok" : "UNAVAILABLE"})`);
+  log(`Shade Linker starting (premierepro: ${ppro ? "ok" : "UNAVAILABLE"})`);
   log("data folder:", await dataFolderPath());
   if (!ppro) return;
 
@@ -168,7 +168,7 @@ async function boot() {
   await bindDirtyToActiveProject();
 
   if (!(await getKey()) && settings.get("linking")) {
-    log("no API key yet: add one in the SPT Lite panel's Settings tab");
+    log("no API key yet: add one in the Shade Linker panel's Settings tab");
   }
   // Whatever is already open is seen now, so only what arrives later is
   // linked or pinned; there will be no DIRTY until someone touches it.
@@ -368,7 +368,7 @@ function wirePanel() {
  */
 async function exportLog(text) {
   try {
-    const file = await uxp.storage.localFileSystem.getFileForSaving("spt-lite.log", {
+    const file = await uxp.storage.localFileSystem.getFileForSaving("shade-linker.log", {
       types: ["log", "txt"]
     });
     if (!file) return "cancelled";
@@ -381,7 +381,7 @@ async function exportLog(text) {
 
 if (entrypoints) entrypoints.setup({
   panels: {
-    sptLitePanel: {
+    shadeLinkerPanel: {
       create() { wirePanel(); },
       show() { wirePanel(); },
       hide() {},
